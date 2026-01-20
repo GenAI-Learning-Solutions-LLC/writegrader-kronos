@@ -82,9 +82,23 @@ pub fn static(request: *std.http.Server.Request, allocator: std.mem.Allocator) !
         std.debug.print("Refusing to serve {s}\n", .{request.head.target[1..]});
         request.respond("<h1>403</h1>", .{ .status = .forbidden, .keep_alive = false }) catch return ServerError.Server;
     }
-    const file = std.fs.cwd().openFile(request.head.target[1..], .{ .mode = .read_only }) catch {
-        four0four(request, allocator) catch return ServerError.Server;
-        return;
+    std.debug.print("static {s}\n", .{request.head.target[1..]});
+
+    const file = blk: {
+        if (!std.mem.containsAtLeastScalar(u8, request.head.target[1..], 1, '.')) {
+            const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ request.head.target[1..], "index.html" });
+            defer allocator.free(path);
+            std.debug.print("{s}\n", .{path});
+
+            break :blk std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch {
+                four0four(request, allocator) catch return ServerError.Server;
+                return;
+            };
+        }
+        break :blk std.fs.cwd().openFile(request.head.target[1..], .{ .mode = .read_only }) catch {
+            four0four(request, allocator) catch return ServerError.Server;
+            return;
+        };
     };
     defer file.close();
     const file_size = try file.getEndPos();
@@ -143,13 +157,11 @@ pub const Server = struct {
     shouldClose: bool = false,
     lock: std.Thread.Mutex = .{},
 
-    pub fn triggerClose(self: *Server) void{
+    pub fn triggerClose(self: *Server) void {
         self.lock.lock();
         self.shouldClose = true;
         self.lock.unlock();
-
     }
-
 
     pub fn init(
         settings: *Config,
@@ -158,7 +170,6 @@ pub const Server = struct {
         var address = try std.net.Address.parseIp4(settings.address, settings.port);
         const server = try address.listen(.{
             .reuse_address = true,
-            
         });
         conf = settings;
         return .{ .settings = settings, .allocator = allocator, .address = address, .server = server };
@@ -192,7 +203,7 @@ pub const Server = struct {
 
             for (0..worker_count) |i| {
                 // error state
-                if (worker_states[i] == .waiting){
+                if (worker_states[i] == .waiting) {
                     idle_count += 1;
                 }
                 if (worker_states[i] == .err) {
@@ -201,18 +212,16 @@ pub const Server = struct {
                 }
             }
             if (self.shouldClose == true and idle_count >= worker_count) {
-
                 for (0..worker_count) |i| {
                     std.debug.print("Killing worker: {}\n", .{i + 1});
                 }
                 std.process.exit(0);
-                
+
                 std.debug.print("\nClosing due to external request\n", .{});
                 return;
             }
 
-
-           std.Thread.sleep(10000); 
+            std.Thread.sleep(10000);
         }
         try self.listen(0, &state, router);
     }
@@ -239,11 +248,11 @@ pub const Server = struct {
             // Fixed: Create reader and writer from connection.stream
             var stream_reader = connection.stream.reader(&buffer);
             var stream_writer = connection.stream.writer(&buff2);
-            
+
             var s = std.http.Server.init(stream_reader.interface(), &stream_writer.interface);
-            if (self.shouldClose){
+            if (self.shouldClose) {
                 return;
-            } 
+            }
 
             var request = try s.receiveHead();
             //print which path we are reaching
@@ -288,18 +297,18 @@ pub const Parser = struct {
         return parsed.value;
     }
 
-     // parse cookies to a stringhashmap
-     pub fn parseCookies(allocator: std.mem.Allocator, request: *std.http.Server.Request) !std.StringHashMap([]const u8) {
-        var cookies = std.StringHashMap([]const u8).init(allocator) ;
+    // parse cookies to a stringhashmap
+    pub fn parseCookies(allocator: std.mem.Allocator, request: *std.http.Server.Request) !std.StringHashMap([]const u8) {
+        var cookies = std.StringHashMap([]const u8).init(allocator);
         var it = request.iterateHeaders();
         var ele = it.next();
-        while (ele != null){
-            if (std.mem.eql(u8, ele.?.name, "Cookie")){
+        while (ele != null) {
+            if (std.mem.eql(u8, ele.?.name, "Cookie")) {
                 var i = std.mem.tokenizeSequence(u8, ele.?.value, "; ");
                 while (i.peek() != null) {
                     const kv = i.peek().?;
                     const delim = std.mem.indexOfScalar(u8, kv, '=');
-                    if (delim != null){
+                    if (delim != null) {
                         const k = kv[0..delim.?];
                         const v = kv[delim.? + 1 .. kv.len];
                         std.debug.print("\ncookie name: {s}\n", .{k});
@@ -313,7 +322,6 @@ pub const Parser = struct {
         }
         return cookies;
     }
-
 
     // parses number to a given type
     fn parseStringToNum(T: type, str: []const u8) !T {

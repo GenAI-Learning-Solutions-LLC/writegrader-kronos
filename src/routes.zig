@@ -8,9 +8,8 @@ pub const routes = &[_]server.Route{
     .{ .path = "/", .callback = index },
     .{ .path = "/home", .callback = index },
     .{ .path = "/", .method = .POST, .callback = postEndpoint },
-    .{ .path = "/styles/*", .callback = server.static },
-    .{ .path = "/scripts/*", .callback = server.static },
-
+    .{ .path = "/static", .callback = server.static },
+    .{ .path = "/static/*", .callback = server.static },
     .{ .path = "/api/:endpoint", .method = .POST, .callback = postEndpoint },
 };
 
@@ -25,12 +24,11 @@ fn index(request: *std.http.Server.Request, allocator: std.mem.Allocator) !void 
     var value: []const u8 = "This is a template string";
     const query = server.Parser.query(IndexQuery, allocator, request);
 
-    _ = try server.Parser.parseCookies(allocator, request);
     if (query != null) {
         value = try fmt.urlDecode(query.?.value orelse "default", allocator);
     }
     const heap = std.heap.page_allocator;
-    const body = try fmt.renderTemplate("index.html", .{ .value = value }, heap);
+    const body = try fmt.renderTemplate("./static/index.html", .{ .value = value }, heap);
 
     defer heap.free(body);
     try request.respond(body, .{ .status = .ok, .keep_alive = false });
@@ -54,7 +52,7 @@ fn postEndpoint(request: *std.http.Server.Request, allocator: std.mem.Allocator)
         .counter = if (std.mem.eql(u8, reqBody.request, "counter")) pubCounter.value else std.time.timestamp(),
     };
     const heap = std.heap.page_allocator;
-    const body = try fmt.renderTemplate("index.html", .{ .value = "hi" }, heap);
+    const body = try fmt.renderTemplate("./static/index.html", .{ .value = "hi" }, heap);
     defer heap.free(body);
     const headers = &[_]std.http.Header{
         .{ .name = "Content-Type", .value = "application/json" },
