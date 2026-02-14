@@ -1,6 +1,12 @@
 const std = @import("std");
 const Config = @import("config.zig");
 
+pub const Context = struct {
+    request: *std.http.Server.Request,
+    allocator: std.mem.Allocator,
+    io: std.Io,
+};
+
 pub const State = enum {
     busy,
     err,
@@ -14,7 +20,7 @@ pub const ServerError = error{ Server, Client, Unknown, Default };
 pub const Route = struct {
     path: []const u8 = "/",
     method: std.http.Method = .GET,
-    callback: *const fn (*std.http.Server.Request, std.mem.Allocator) anyerror!void = default,
+    callback: *const fn (Context) anyerror!void = default,
 
     pub fn match(self: *Route, path: []const u8, m: std.http.Method) bool {
         if (m != self.method) {
@@ -40,9 +46,9 @@ pub const Route = struct {
         return true;
     }
 
-    pub fn default(request: *std.http.Server.Request, allocator: std.mem.Allocator) ServerError!void {
-        const body = std.fmt.allocPrint(allocator, "hello world from {s}", .{request.head.target}) catch return ServerError.Server;
-        request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
+    pub fn default(c: Context) ServerError!void {
+        const body = std.fmt.allocPrint(c.allocator, "hello world from {s}", .{c.request.head.target}) catch return ServerError.Server;
+        c.request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
     }
 };
 
@@ -151,6 +157,7 @@ var conf: *Config = undefined;
 /// A wrapper arount std.net.Server with builtin multithreading, arena based memory management and routing
 pub const Server = struct {
     settings: *Config,
+    io: std.Io,
     allocator: std.mem.Allocator,
     server: std.net.Server,
     address: std.net.Address,
@@ -164,15 +171,16 @@ pub const Server = struct {
     }
 
     pub fn init(
-        settings: *Config,
         allocator: std.mem.Allocator,
+        io: std.Io,
+        settings: *Config,
     ) !Server {
         var address = try std.net.Address.parseIp4(settings.address, settings.port);
         const server = try address.listen(.{
             .reuse_address = true,
         });
         conf = settings;
-        return .{ .settings = settings, .allocator = allocator, .address = address, .server = server };
+        return .{ .settings = settings, .allocator = allocator, .io = io, .address = address, .server = server };
     }
 
     /// listen on the address and port indicated from the provided config, dispatch requests via the router to the provided routes

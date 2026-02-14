@@ -1,18 +1,18 @@
 const std = @import("std");
 
 pub fn renderTemplate(
+    io: std.Io,
     path: []const u8,
     x: anytype,
     allocator: std.mem.Allocator,
 ) ![]const u8 {
-    const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
-    defer file.close();
-    const file_size = try file.getEndPos();
+    const file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+    defer file.close(io);
+    const file_size = try file.length(io);
     const body: []u8 = try allocator.alloc(u8, file_size);
-    _ = try file.readAll(body);
     defer allocator.free(body);
-
-    // Updated for Zig 0.15: ArrayList is now unmanaged by default
+    var reader = file.reader(io, body);
+    _ = try reader.interface.readSliceAll(body);
     var new_body = std.ArrayList(u8){};
     defer new_body.deinit(allocator);
     try new_body.appendSlice(allocator, body);
@@ -139,4 +139,3 @@ pub fn urlDecode(
     const out = try new_body.toOwnedSlice(allocator);
     return out;
 }
-

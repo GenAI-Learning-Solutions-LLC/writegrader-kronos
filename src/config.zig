@@ -9,24 +9,21 @@ hideDotFiles: bool = true,
 useArena: bool = true,
 
 /// Initialize the `Config` from a JSON file.
-pub fn init(filename: []const u8, allocator: std.mem.Allocator) !Config {
-    const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
-    defer file.close();
-
-    const file_size = try file.getEndPos();
+pub fn init(io: std.Io, filename: []const u8, allocator: std.mem.Allocator) !Config {
+    const file = try std.Io.Dir.cwd().openFile(io, filename, .{ .mode = .read_only });
+    defer file.close(io);
+    const file_size = try file.length(io);
     const b: []u8 = try allocator.alloc(u8, file_size);
     defer allocator.free(b);
+    var reader = file.reader(io, b);
+    _ = try reader.interface.readSliceAll(b);
 
-    _ = try file.readAll(b);
-
-    var settings = try std.json.parseFromSlice(Config, allocator, b, .{
-        .ignore_unknown_fields = true,
-    });
+    var settings = try std.json.parseFromSlice(Config, allocator, b, .{});
+    _ = &settings;
     defer settings.deinit(); // Free allocated JSON memory
 
     // Duplicate the address string so it remains valid
     const address_copy = try allocator.dupe(u8, settings.value.address);
-
     return Config{
         .address = address_copy,
         .port = settings.value.port,
