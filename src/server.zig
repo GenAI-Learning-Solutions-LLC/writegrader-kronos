@@ -154,15 +154,14 @@ pub const Router = struct {
 /// this is here to allow or disalow the static function from serving dotfiles
 var conf: *Config = undefined;
 
-/// A wrapper arount std.net.Server with builtin multithreading, arena based memory management and routing
+/// A wrapper around std.Io.net.Server with builtin multithreading, arena based memory management and routing
 pub const Server = struct {
     settings: *Config,
     io: std.Io,
     allocator: std.mem.Allocator,
-    server: std.net.Server,
-    address: std.net.Address,
+    server: std.Io.net.Server,
+    address: std.Io.net.IpAddress,
     shouldClose: bool = false,
-    lock: std.Thread.Mutex = .{},
 
     pub fn triggerClose(self: *Server) void {
         self.lock.lock();
@@ -175,12 +174,10 @@ pub const Server = struct {
         io: std.Io,
         settings: *Config,
     ) !Server {
-        var address = try std.net.Address.parseIp4(settings.address, settings.port);
-        const server = try address.listen(.{
-            .reuse_address = true,
-        });
+        const addr: std.Io.net.IpAddress = try .resolve(io, settings.address, settings.port);
+        const tcp_server = try addr.listen(io, .{});
         conf = settings;
-        return .{ .settings = settings, .allocator = allocator, .io = io, .address = address, .server = server };
+        return .{ .settings = settings, .allocator = allocator, .io = io, .address = addr, .server = tcp_server };
     }
 
     /// listen on the address and port indicated from the provided config, dispatch requests via the router to the provided routes
@@ -236,7 +233,17 @@ pub const Server = struct {
 
     /// should normally not be called directly, intead call runServer
     pub fn listen(self: *Server, id: usize, state: *State, router: Router) !void {
-        var server = self.server;
+        const io = self.io;
+
+        var recv_buffer: [4096]u8 = undefined;
+        var send_buffer: [4096]u8 = undefined;
+        
+        var stream = try self.server.accept(io);
+        var connection_reader = stream.reader(io, &recv_buffer);
+        var connection_writer = stream.writer(io, &send_buffer);
+        var server: std.http.Server = .init(&connection_reader.interface, &connection_writer.interface);
+
+
         var buf: [1000]u8 = undefined;
         var stdout = std.fs.File.writer(std.fs.File.stdout(), &buf).interface;
         state.* = .waiting;
@@ -245,24 +252,20 @@ pub const Server = struct {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
+
+
         while (!self.shouldClose) {
             try stdout.print("{d} - {any}\n", .{ id, state });
             state.* = .waiting;
             var connection = try server.accept();
             defer connection.stream.close();
             state.* = .busy; // tell the parent server that we are answering a request
-            var buffer: [4096]u8 = undefined;
-            var buff2: [4096]u8 = undefined;
             // Fixed: Create reader and writer from connection.stream
-            var stream_reader = connection.stream.reader(&buffer);
-            var stream_writer = connection.stream.writer(&buff2);
 
-            var s = std.http.Server.init(stream_reader.interface(), &stream_writer.interface);
             if (self.shouldClose) {
                 return;
             }
-
-            var request = try s.receiveHead();
+            var request = try server.receiveHead();
             //print which path we are reaching
             try stdout.print("Worker #{d}: {s} \n", .{ id, request.head.target });
             // this is to ensure clean memory usage but can be bypassed in config.json

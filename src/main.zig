@@ -14,6 +14,6 @@ pub fn main(init: std.process.Init) !void {
     var routes = std.ArrayList(server.Route){};
     try routes.appendSlice(allocator, r.routes);
     defer routes.deinit(allocator);
-   // var s = try server.Server.init(init.allocator, init.io, &settings);
-   // try s.runServer(.{ .routes = routes });
+    var s = try server.Server.init(init.gpa, init.io, &settings);
+    try s.runServer(.{ .routes = routes });
 }
