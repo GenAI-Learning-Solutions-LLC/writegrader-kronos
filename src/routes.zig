@@ -19,9 +19,8 @@ fn index(c: server.Context) !void {
     if (query != null) {
         value = try server.Parser.urlDecode(query.?.value orelse "default", c.allocator);
     }
-    const heap = std.heap.page_allocator;
-    const body = try fmt.renderTemplate(c.io, "./static/index.html", .{ .value = value }, heap);
-    defer heap.free(body);
+    const body = try fmt.renderTemplate(c.io, "./static/index.html", .{ .value = value }, c.allocator);
+    defer c.allocator.free(body);
     try c.request.respond(body, .{ .status = .ok, .keep_alive = false });
 }
 
