@@ -69,10 +69,9 @@ pub fn sendJson(allocator: std.mem.Allocator, request: *std.http.Server.Request,
 }
 
 ///this function returns a 404 error
-pub fn four0four(request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
-    _ = allocator;
+pub fn four0four(c: Context) !void {
     const body = "<h1>NOT FOUND</h1>";
-    request.respond(body, .{ .status = .not_found, .keep_alive = false }) catch return ServerError.Server;
+    c.request.respond(body, .{ .status = .not_found, .keep_alive = false }) catch return ServerError.Server;
 }
 
 ///this function returns a 500 error
@@ -83,7 +82,9 @@ pub fn five00(request: *std.http.Server.Request, allocator: std.mem.Allocator) !
 }
 
 ///function for serving static files, the path on a route with this method should end with '\*' or ':<parameter>' unless only one file is meant to be served on the route
-pub fn static(request: *std.http.Server.Request, allocator: std.mem.Allocator) !void {
+pub fn static(c: Context) !void {
+    const request = c.request;
+    const allocator = c.allocator;
     if (conf.hideDotFiles and std.mem.containsAtLeast(u8, request.head.target, 1, "/.")) {
         std.debug.print("Refusing to serve {s}\n", .{request.head.target[1..]});
         request.respond("<h1>403</h1>", .{ .status = .forbidden, .keep_alive = false }) catch return ServerError.Server;
@@ -94,22 +95,26 @@ pub fn static(request: *std.http.Server.Request, allocator: std.mem.Allocator) !
         if (!std.mem.containsAtLeastScalar(u8, request.head.target[1..], 1, '.')) {
             const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ request.head.target[1..], "index.html" });
             defer allocator.free(path);
-            std.debug.print("{s}\n", .{path});
+            std.debug.print("static {s}\n", .{path});
 
-            break :blk std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch {
-                four0four(request, allocator) catch return ServerError.Server;
+            break :blk std.Io.Dir.cwd().openFile(c.io, path, .{ .mode = .read_only }) catch {
+                four0four(c) catch return ServerError.Server;
                 return;
             };
         }
-        break :blk std.fs.cwd().openFile(request.head.target[1..], .{ .mode = .read_only }) catch {
-            four0four(request, allocator) catch return ServerError.Server;
+
+        break :blk std.Io.Dir.cwd().openFile(c.io, request.head.target[1..], .{ .mode = .read_only }) catch {
+            four0four(c) catch return ServerError.Server;
             return;
         };
     };
-    defer file.close();
-    const file_size = try file.getEndPos();
+
+    defer file.close(c.io);
+    const file_size = try file.length(c.io);
     const body: []u8 = try allocator.alloc(u8, file_size);
-    _ = try file.readAll(body);
+    defer allocator.free(body);
+    var reader = file.reader(c.io, body);
+    _ = try reader.interface.readSliceAll(body);
     defer allocator.free(body);
     request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
 }
@@ -135,18 +140,20 @@ pub const Router = struct {
     }
 
     /// dispatch a request to the first route with a matching path and method
-    pub fn route(self: Router, request: *std.http.Server.Request, allocator: std.mem.Allocator) anyerror!void {
+    pub fn route(self: Router, io: std.Io, request: *std.http.Server.Request, allocator: std.mem.Allocator) anyerror!void {
+        const c: Context = .{ .allocator = allocator, .request = request, .io = io };
+
         for (self.routes.items) |*r| {
             const query = std.mem.indexOf(u8, request.head.target, "?") orelse request.head.target.len;
             if (r.match(request.head.target[0..query], request.head.method)) {
                 std.debug.print("match: {s}\n", .{r.path});
-                r.callback(request, allocator) catch |err| {
+                r.callback(c) catch |err| {
                     std.debug.print("error: {}\n", .{err});
                     return;
                 };
             }
         }
-        notFound.callback(request, allocator) catch return ServerError.Server;
+        notFound.callback(c) catch return ServerError.Server;
         return;
     }
 };
@@ -184,10 +191,14 @@ pub const Server = struct {
     pub fn runServer(self: *Server, router: Router) !void {
         //const allocator = self.allocator;
         var server = self.server;
-        defer server.deinit();
-        var buf: [1000]u8 = undefined;
-        var stdout = std.fs.File.writer(std.fs.File.stdout(), &buf).interface;
+        defer server.deinit(self.io);
+        var buf: [1024]u8 = undefined;
+
+        var stdout_file_writer: std.Io.File.Writer = .init(.stdout(), self.io, &buf);
+        const stdout = &stdout_file_writer.interface;
+
         try stdout.print("Listening on http://{s}\n", .{self.settings.address});
+
         var state: State = .waiting;
         const worker_count: usize = self.settings.workers;
         const workers: []std.Thread = try self.allocator.alloc(std.Thread, worker_count);
@@ -226,7 +237,7 @@ pub const Server = struct {
                 return;
             }
 
-            std.Thread.sleep(10000);
+            _ = try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(1000), std.Io.Clock.real);
         }
         try self.listen(0, &state, router);
     }
@@ -237,28 +248,20 @@ pub const Server = struct {
 
         var recv_buffer: [4096]u8 = undefined;
         var send_buffer: [4096]u8 = undefined;
-        
-        var stream = try self.server.accept(io);
-        var connection_reader = stream.reader(io, &recv_buffer);
-        var connection_writer = stream.writer(io, &send_buffer);
-        var server: std.http.Server = .init(&connection_reader.interface, &connection_writer.interface);
 
-
-        var buf: [1000]u8 = undefined;
-        var stdout = std.fs.File.writer(std.fs.File.stdout(), &buf).interface;
         state.* = .waiting;
         errdefer state.* = .err; // on error this thread will be killed and replaced
-        try stdout.print("path {s}\n", .{router.routes.items[0].path});
+        std.debug.print("path {s}\n", .{router.routes.items[0].path});
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
-
-
         while (!self.shouldClose) {
-            try stdout.print("{d} - {any}\n", .{ id, state });
+            var stream = try self.server.accept(io);
+            var connection_reader = stream.reader(io, &recv_buffer);
+            var connection_writer = stream.writer(io, &send_buffer);
+            var server: std.http.Server = .init(&connection_reader.interface, &connection_writer.interface);
+            std.debug.print("{d} - {any}\n", .{ id, state });
             state.* = .waiting;
-            var connection = try server.accept();
-            defer connection.stream.close();
             state.* = .busy; // tell the parent server that we are answering a request
             // Fixed: Create reader and writer from connection.stream
 
@@ -267,13 +270,9 @@ pub const Server = struct {
             }
             var request = try server.receiveHead();
             //print which path we are reaching
-            try stdout.print("Worker #{d}: {s} \n", .{ id, request.head.target });
+            std.debug.print("Worker #{d}: {s} \n", .{ id, request.head.target });
             // this is to ensure clean memory usage but can be bypassed in config.json
-            if (self.settings.useArena) {
-                try router.route(&request, arena.allocator());
-            } else {
-                try router.route(&request, self.allocator);
-            }
+            try router.route(self.io, &request, arena.allocator());
             state.* = .waiting;
             _ = arena.reset(.free_all);
         }
@@ -334,43 +333,19 @@ pub const Parser = struct {
         return cookies;
     }
 
-    // parses number to a given type
-    fn parseStringToNum(T: type, str: []const u8) !T {
-        return switch (@typeName(T)[0]) {
-            'i', 'u' => try std.fmt.parseInt(T, str, 10),
-            'f' => try std.fmt.parseFloat(T, str),
-            else => @compileError("Unsupported type: " ++ @typeName(T)),
-        };
-    }
-
-    /// this detects if a type is one of zigs arbitrary length numbers or a c number type
-    /// it is not compatible with comptime types or c types
-    fn isTypeNumber(T: type) bool {
-        return switch (T) {
-            else => {
-                _ = std.fmt.parseInt(u32, @typeName(T)[1..], 10) catch return false;
-                return true;
-            },
-        };
-    }
-
     fn parseStringToType(T: type, str: []const u8) !T {
-        std.debug.print("&{s}\n", .{@typeName(T)});
-        if (isTypeNumber(T)) {
-            std.debug.print("It's a number all right!\n", .{});
-            return try parseStringToNum(T, str);
-        }
         return switch (T) {
-            // Signed integers
             []const u8 => str,
             bool => blk: {
                 if (std.mem.eql(u8, str, "true")) break :blk true;
                 if (std.mem.eql(u8, str, "false")) break :blk false;
                 return error.InvalidBoolean;
             },
-            // Characters (Assumes ASCII single character)
-            // Unsupported types
-            else => error.Default,
+            else => return switch (@typeInfo(T)) {
+                .int => std.fmt.parseInt(T, str, 10),
+                .float => std.fmt.parseFloat(T, str, 10),
+                else => @compileError("Unsupported type"),
+            },
         };
     }
 
@@ -408,5 +383,105 @@ pub const Parser = struct {
             _ = tokens.next();
         }
         return x;
+    }
+
+    const encoded_values = [_][]const u8{
+        "%20",
+        "%21",
+        "%22",
+        "%23",
+        "%24",
+        "%25",
+        "%26",
+        "%27",
+        "%28",
+        "%29",
+        "%2A",
+        "%2B",
+        "%2C",
+        "%2D",
+        "%2E",
+        "%2F",
+        "%3A",
+        "%3B",
+        "%3C",
+        "%3D",
+        "%3E",
+        "%3F",
+        "%40",
+        "%5B",
+        "%5C",
+        "%5D",
+        "%5E",
+        "%5F",
+        "%60",
+        "%7B",
+        "%7C",
+        "%7D",
+        "%7E",
+    };
+
+    const decoded_values = [_][]const u8{
+        " ",
+        "!",
+        "\"",
+        "#",
+        "$",
+        "%",
+        "&",
+        "'",
+        "(",
+        ")",
+        "*",
+        "+",
+        ",",
+        "-",
+        ".",
+        "/",
+        ":",
+        ";",
+        "<",
+        "=",
+        ">",
+        "?",
+        "@",
+        "[",
+        "\\",
+        "]",
+        "^",
+        "_",
+        "`",
+        "{",
+        "|",
+        "}",
+        "~",
+    };
+
+    pub fn urlDecode(
+        body: []const u8,
+        allocator: std.mem.Allocator,
+    ) ![]const u8 {
+        var temp_body = std.ArrayList(u8){};
+        defer temp_body.deinit(allocator);
+
+        var new_body = std.ArrayList(u8){};
+        defer new_body.deinit(allocator);
+        try new_body.appendSlice(allocator, body);
+
+        inline for (0..encoded_values.len) |i| {
+            const l = encoded_values[i];
+            var pieces = std.mem.tokenizeSequence(u8, new_body.items, l);
+            while (pieces.peek() != null) {
+                try temp_body.appendSlice(allocator, pieces.next().?);
+                if (pieces.peek() != null) {
+                    try temp_body.appendSlice(allocator, decoded_values[i]);
+                }
+            }
+            new_body.clearRetainingCapacity();
+            try new_body.appendSlice(allocator, temp_body.items);
+            temp_body.clearRetainingCapacity();
+        }
+        const out = try new_body.toOwnedSlice(allocator);
+        return out;
     }
 };
