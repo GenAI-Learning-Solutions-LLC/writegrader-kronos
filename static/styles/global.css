@@ -1,0 +1,84 @@
+@import url("https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,300..900;1,300..900&display=swap");
+:root {
+    --spacing: 0.25rem;
+    --spacing-2: calc(var(--spacing) * 2);
+    --spacing-3: calc(var(--spacing) * 3);
+    --spacing-4: calc(var(--spacing) * 4);
+    --header-height: calc(var(--spacing) * 10);
+    --bg-primary: #2e5e4e;
+    --bg-accent: #2e5e4e;
+    --bg-light: #93a7aa;
+    --bg-dull: #a7b5b8;
+    --zoi-bg: #0a0e14;
+    --zoi-surface: #151a21;
+    --zoi-border: #2d333b;
+    --zoi-text: #e6edf3;
+    --zoi-text-muted: #8b949e;
+    --zoi-primary: #58a6ff;
+    --zoi-primary-hover: #79c0ff;
+    --zoi-success: #3fb950;
+    --zoi-warning: #d29922;
+    --zoi-error: #f85149;
+    --zoi-accent: #a371f7;
+    font-size: 1.25rem;
+    font-family: "Rubik", sans-serif;
+}
+
+main {
+    padding-top: var(--header-height);
+}
+
+button,
+.btn {
+    background: white;
+    font-size: 1.05rem;
+    padding: var(--spacing)  var(--spacing-4);
+    border-radius: 50rem;
+    color: black;
+    text-decoration: none;
+    transition: 0.2s;
+
+}
+
+button:hover, .btn:hover {
+    transform: translateY(-2px);
+    cursor: pointer;
+    background: var(--zoi-primary-hover);
+    color: white;
+
+}
+
+body {
+    background: var(--zoi-bg);
+}
+body * {
+    font-family: "Rubik", sans-serif;
+}
+
+nav-bar  {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    border-bottom: 1px solid var(--zoi-primary);
+    max-width: 100vw;
+    width: 100vw;
+    height: var(--header-height);
+    background: black;
+    color: var(--zoi-text);
+    position: absolute;
+    top: 0px;
+    left: 0px;
+}
+
+
+nav-bar nav {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    
+    margin-right: var(--spacing-4);
+    margin-left: var(--spacing-4);
+
+    
+}
