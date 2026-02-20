@@ -1,10 +1,24 @@
 const std = @import("std");
 const Config = @import("config.zig");
 
+pub const Callback: type = *const fn (*Context) anyerror!void;
+
 pub const Context = struct {
     request: *std.http.Server.Request,
+    next: bool = true,
     allocator: std.mem.Allocator,
     io: std.Io,
+    route: *const Route,
+    values: std.StringHashMap([]const u8),
+    pub fn get(self: *Context, key: []const u8) ?[]const u8 {
+        return self.values.get(key);
+    }
+    pub fn put(self: *Context, key: []const u8, value: []const u8) !void {
+        try self.values.put(key, value);
+    }
+    pub fn init(request: *std.http.Server.Request, route: *const Route, allocator: std.mem.Allocator, io: std.Io) !Context {
+        return .{ .allocator = allocator, .request = request, .route= route, .io = io, .values = .init(allocator) };
+    }
 };
 
 pub const State = enum {
@@ -20,7 +34,8 @@ pub const ServerError = error{ Server, Client, Unknown, Default };
 pub const Route = struct {
     path: []const u8 = "/",
     method: std.http.Method = .GET,
-    callback: *const fn (Context) anyerror!void = default,
+    callback: Callback = default,
+    middleware: ?[]const Callback = null,
 
     pub fn match(self: *Route, path: []const u8, m: std.http.Method) bool {
         if (m != self.method) {
@@ -46,7 +61,18 @@ pub const Route = struct {
         return true;
     }
 
-    pub fn default(c: Context) ServerError!void {
+    pub fn run(self: *Route, c: *Context) !void {
+        if (self.middleware != null) {
+            for (self.middleware.?) |middleware| {
+                middleware(c) catch |err| {
+                    return err;
+                };
+            }
+        }
+        try self.callback(c);
+    }
+
+    pub fn default(c: *Context) !void {
         const body = std.fmt.allocPrint(c.allocator, "hello world from {s}", .{c.request.head.target}) catch return ServerError.Server;
         c.request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
     }
@@ -69,7 +95,7 @@ pub fn sendJson(allocator: std.mem.Allocator, request: *std.http.Server.Request,
 }
 
 ///this function returns a 404 error
-pub fn four0four(c: Context) !void {
+pub fn four0four(c: *Context) !void {
     const body = "<h1>NOT FOUND</h1>";
     c.request.respond(body, .{ .status = .not_found, .keep_alive = false }) catch return ServerError.Server;
 }
@@ -82,7 +108,7 @@ pub fn five00(request: *std.http.Server.Request, allocator: std.mem.Allocator) !
 }
 
 ///function for serving static files, the path on a route with this method should end with '\*' or ':<parameter>' unless only one file is meant to be served on the route
-pub fn static(c: Context) !void {
+pub fn static(c: *Context) !void {
     const request = c.request;
     const allocator = c.allocator;
     if (conf.hideDotFiles and std.mem.containsAtLeast(u8, request.head.target, 1, "/.")) {
@@ -141,19 +167,21 @@ pub const Router = struct {
 
     /// dispatch a request to the first route with a matching path and method
     pub fn route(self: Router, io: std.Io, request: *std.http.Server.Request, allocator: std.mem.Allocator) anyerror!void {
-        const c: Context = .{ .allocator = allocator, .request = request, .io = io };
 
         for (self.routes.items) |*r| {
             const query = std.mem.indexOf(u8, request.head.target, "?") orelse request.head.target.len;
             if (r.match(request.head.target[0..query], request.head.method)) {
+                var c: Context = try .init(request, r, allocator, io);
+
                 std.debug.print("match: {s}\n", .{r.path});
-                r.callback(c) catch |err| {
+                r.run(&c) catch |err| {
                     std.debug.print("error: {}\n", .{err});
                     return;
                 };
             }
         }
-        notFound.callback(c) catch return ServerError.Server;
+        var c: Context = try .init(request, &notFound, allocator, io);
+        notFound.callback(&c) catch return ServerError.Server;
         return;
     }
 };
@@ -353,6 +381,24 @@ pub const Parser = struct {
     pub fn query(T: type, allocator: std.mem.Allocator, request: *std.http.Server.Request) ?T {
         const qIndex = std.mem.indexOf(u8, request.head.target, "?") orelse return null;
         return keyValue(T, allocator, request.head.target[qIndex + 1 ..], "&") catch return null;
+    }
+
+
+    /// fetches param from url
+    pub fn param(T: type, c: *Context, key: []const u8) !?T {
+        var foo = std.mem.tokenizeScalar(u8, c.route.path, '/');
+        var bar = std.mem.tokenizeScalar(u8, c.request.head.target, '/');
+        while (foo.peek() != null and bar.peek() != null){
+           const a = foo.peek();
+           if (std.mem.eql(u8, a.?[1..], key)){
+                const decoded = try urlDecode(bar.peek().?, c.allocator);
+                return try parseStringToType(T, decoded);
+           }
+            _ = foo.next();
+            _ = bar.next();
+        }
+        return null;
+        
     }
 
     /// this function parses key value pairs, memory is leaky so an arena is suggested

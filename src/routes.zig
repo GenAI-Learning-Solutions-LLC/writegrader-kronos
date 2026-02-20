@@ -3,25 +3,41 @@ const std = @import("std");
 const Config = @import("config.zig");
 const fmt = @import("fmt.zig");
 const server = @import("server.zig");
-
+const Context = server.Context;
+const Callback = server.Callback;
 const stdout = std.io.getStdOut().writer();
 
 pub const routes = &[_]server.Route{
-    .{ .path = "/", .callback = index },
-    .{ .path = "/static/*", .callback = server.static},
-    .{ .path = "/", .method = .POST, .callback = postEndpoint },
+    .{ .path = "/", .middleware = &[_]Callback{
+        index_middleware,
+    }, .callback = index },
+    .{ .path = "/static/*", .callback = server.static },
+    .{ .path = "/:param", .callback = param_test },
+
     .{ .path = "/api/:endpoint", .method = .POST, .callback = postEndpoint },
 };
 
-fn index(c: server.Context) !void {
+fn index_middleware(c: *Context) !void {
+    std.debug.print("Hit the middleware\n", .{});
+    try c.put("foo", "bar");
+}
+
+fn index(c: *Context) !void {
+    std.debug.print("value from the middleware '{s}'\n", .{c.get("foo").?});
+
     var value: []const u8 = "This is a template string, use a query string to replace it. (?value=something)";
-    const query = server.Parser.query(struct {value: ?[]const u8}, c.allocator, c.request);
+    const query = server.Parser.query(struct { value: ?[]const u8 }, c.allocator, c.request);
     if (query != null) {
         value = try server.Parser.urlDecode(query.?.value orelse "default", c.allocator);
     }
     const body = try fmt.renderTemplate(c.io, "./static/index.html", .{ .value = value }, c.allocator);
     defer c.allocator.free(body);
     try c.request.respond(body, .{ .status = .ok, .keep_alive = false });
+}
+
+fn param_test(c: *Context) !void {
+    const body = server.Parser.param([]const u8, c, "param") catch "Could not parse";
+    try c.request.respond(body orelse "no value found", .{ .status = .ok, .keep_alive = false });
 }
 
 const PubCounter = struct {
@@ -43,7 +59,7 @@ const PostResponse = struct {
     counter: i64,
 };
 
-fn postEndpoint(c: server.Context) !void {
+fn postEndpoint(c: *Context) !void {
     _ = try pubCounter.lock.lock(c.io);
     pubCounter.value += 1;
     _ = pubCounter.lock.unlock(c.io);
@@ -58,5 +74,3 @@ fn postEndpoint(c: server.Context) !void {
     };
     try server.sendJson(c.allocator, c.request, out, .{ .status = .ok, .keep_alive = false, .extra_headers = headers });
 }
-
-
