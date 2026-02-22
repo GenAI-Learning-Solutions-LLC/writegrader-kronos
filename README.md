@@ -8,20 +8,20 @@ Most web frameworks are built around the assumption that you should not have to 
 
 Rather than hiding routing, request parsing, and memory management behind a versioned API, Zoi gives you a small, readable codebase that you can read in an afternoon and modify freely. There is no framework to update, no breaking changes to absorb, and no behavior you cannot inspect. When something does not work the way you want, you fix it directly rather than waiting for an upstream maintainer.
 
-The entire implementation — routing, middleware, static files, templating, JSON parsing, cookie handling, and JWT verification — fits in a handful of files totalling a few hundred lines. Every piece of functionality is there because a server needs it, not because a framework includes it.
+The entire implementation — routing, middleware, static files, templating, JSON parsing, cookie handling, and JWT verification — fits in a handful of files totalling a few hundred lines. Every piece of functionality is there because a server will likely need it.
 
 On the technical side, Zig's comptime type system lets the parser accept any struct type at the call site without runtime reflection or code generation. Each request is handled inside an arena allocator that is reset between requests, which means memory management is handled structurally rather than requiring individual frees in handler code. Worker threads are spawned at startup, failed workers are automatically restarted, and the memory and routing overhead per request is minimal.
 
 ## Production Readiness
 
-Zoi has been running in production for over a year. Zoi's site is self-hosted, and benchmarks show Zoi can sustain over 10,000 requests per second — roughly 36 million requests per hour — against a live SQLite backend on commodity hardware. That is about 3.6x the throughput of an equivalent Bun server on the same machine, achieved through Zig's threading model and the elimination of lock contention via thread-local storage. See the [performance writeup](https://github.com/AndrewGossage/Thanatos/blob/main/pages/sql.html) for the full breakdown.
+Zoi has been running in production for over a year. Zoi's site is self-hosted, and benchmarks show Zoi can sustain over 10,000 requests per second against a live SQLite backend on commodity hardware. That is about 3.6x the throughput of an equivalent Bun server on the same machine, achieved through Zig's threading model and the elimination of lock contention via thread-local storage. See the [performance writeup](https://github.com/AndrewGossage/Thanatos/blob/main/pages/sql.html) for the full breakdown.
 
 The architecture is straightforward under load: a fixed thread pool accepts connections, each worker uses an arena allocator that resets between requests, and the router is a simple linear scan with no heap allocation per match. There is no runtime, no garbage collector, and no framework overhead.
 
 Two things to know before deploying:
 
 - **No TLS.** Zoi does not terminate HTTPS. Run it behind nginx, Caddy, or any TLS-terminating proxy — the same setup you would use for any backend.
-- **Zig is pre-1.0.** The language and standard library are still evolving. Zig updates occasionally require changes to the server code. Because you own the code rather than depending on a versioned package, those changes are yours to make on your own schedule.
+- **Zig is pre-1.0.** The language and standard library are still evolving. Zig updates almost always require changes to the server code. Because you own the code rather than depending on a versioned package, those changes are yours to make on your own schedule. Zoi tracks the current stable version of Zig.
 
 ## Requirements
 
