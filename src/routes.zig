@@ -35,9 +35,13 @@ fn index(c: *Context) !void {
     try c.request.respond(body, .{ .status = .ok, .keep_alive = false });
 }
 
+const TestParams = struct {
+    param: []const u8,
+};
+
 fn param_test(c: *Context) !void {
-    const body = server.Parser.param([]const u8, c, "param") catch "Could not parse";
-    try c.request.respond(body orelse "no value found", .{ .status = .ok, .keep_alive = false });
+    const params = server.Parser.params(TestParams, c) catch TestParams{.param = "Could not parse"};
+    try c.request.respond(params.param, .{ .status = .ok, .keep_alive = false });
 }
 
 const PubCounter = struct {

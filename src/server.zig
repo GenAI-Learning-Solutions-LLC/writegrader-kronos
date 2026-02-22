@@ -17,7 +17,7 @@ pub const Context = struct {
         try self.values.put(key, value);
     }
     pub fn init(request: *std.http.Server.Request, route: *const Route, allocator: std.mem.Allocator, io: std.Io) !Context {
-        return .{ .allocator = allocator, .request = request, .route= route, .io = io, .values = .init(allocator) };
+        return .{ .allocator = allocator, .request = request, .route = route, .io = io, .values = .init(allocator) };
     }
 };
 
@@ -77,15 +77,6 @@ pub const Route = struct {
         c.request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
     }
 };
-
-///this function returns the nth token from a url string and can be used to get parameters
-pub fn param(s: []const u8, n: usize) ?[]const u8 {
-    var out = std.mem.tokenizeSequence(u8, s, "/");
-    for (0..n) |_| {
-        _ = out.next();
-    }
-    return out.peek();
-}
 
 pub fn sendJson(allocator: std.mem.Allocator, request: *std.http.Server.Request, object: anytype, options: std.http.Server.Request.RespondOptions) !void {
     const body = try std.json.Stringify.valueAlloc(allocator, object, .{});
@@ -167,7 +158,6 @@ pub const Router = struct {
 
     /// dispatch a request to the first route with a matching path and method
     pub fn route(self: Router, io: std.Io, request: *std.http.Server.Request, allocator: std.mem.Allocator) anyerror!void {
-
         for (self.routes.items) |*r| {
             const query = std.mem.indexOf(u8, request.head.target, "?") orelse request.head.target.len;
             if (r.match(request.head.target[0..query], request.head.method)) {
@@ -312,7 +302,6 @@ pub const Parser = struct {
     ///parse a json encoded string to a provided type
     ///will automatically find the body in an http request.
     pub fn json(T: type, allocator: std.mem.Allocator, request: *std.http.Server.Request) !T {
-        // For Zig 0.15.1, we need to use readerExpectContinue properly
         const buf = try allocator.alloc(u8, 4096);
         defer allocator.free(buf);
         const reader = try request.readerExpectContinue(buf);
@@ -382,23 +371,50 @@ pub const Parser = struct {
         const qIndex = std.mem.indexOf(u8, request.head.target, "?") orelse return null;
         return keyValue(T, allocator, request.head.target[qIndex + 1 ..], "&") catch return null;
     }
+    
+    pub const ParseErrors = error{MissingField};
 
+    /// converts params to struct
+    pub fn params(T: type, c: *Context) !T {
+        var x: T = undefined;
+        inline for (std.meta.fields(T)) |f| {
+            const name: []const u8 = f.name;
+            const t = single_param(f.type, c, name[0..]) catch {
+                if (@typeInfo(f.type) == .optional) {
+                    @field(x, f.name) = null;
+                    continue;
+                } else {
+                    return ParseErrors.MissingField;
+                }
+            };
+            if (t == null){
+                if (@typeInfo(f.type) == .optional) {
+                    @field(x, f.name) = null;
+                    continue;
+                } else {
+                    return ParseErrors.MissingField;
+                }
+            }
+            
+            @field(x, f.name) = t.?;
+        }
+        return x;
+    }
 
-    /// fetches param from url
-    pub fn param(T: type, c: *Context, key: []const u8) !?T {
+    /// fetches single param from url
+    pub fn single_param(T: type, c: *Context, key: []const u8) !?T {
         var foo = std.mem.tokenizeScalar(u8, c.route.path, '/');
         var bar = std.mem.tokenizeScalar(u8, c.request.head.target, '/');
-        while (foo.peek() != null and bar.peek() != null){
-           const a = foo.peek();
-           if (std.mem.eql(u8, a.?[1..], key)){
+        while (foo.peek() != null and bar.peek() != null) {
+            const a = foo.peek();
+            if (std.mem.eql(u8, a.?[1..], key)) {
                 const decoded = try urlDecode(bar.peek().?, c.allocator);
                 return try parseStringToType(T, decoded);
-           }
+            }
             _ = foo.next();
             _ = bar.next();
         }
         return null;
-        
     }
 
     /// this function parses key value pairs, memory is leaky so an arena is suggested
@@ -408,7 +424,7 @@ pub const Parser = struct {
         while (tokens.peek() != null) {
             inline for (std.meta.fields(T)) |f| {
                 // to be safe we need to set nullable values first to null;
-                if (@typeName(f.type)[0] == '?') {
+                if (@typeInfo(f.type) == .optional) {
                     @field(x, f.name) = null;
                 }
                 const token = tokens.peek().?;
