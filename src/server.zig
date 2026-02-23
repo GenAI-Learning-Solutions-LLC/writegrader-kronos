@@ -1,5 +1,23 @@
 const std = @import("std");
 const Config = @import("config.zig");
+const builtin = @import("builtin");
+
+
+pub var log_writer: ?*std.Io.Writer = null;
+
+pub fn debugPrint(comptime fstring: []const u8, values: anytype) void {
+    if (log_writer == null){
+        if (builtin.mode == .Debug){
+            std.debug.print(fstring, values);
+        }
+        return;
+    }
+    log_writer.?.print(fstring, values) catch return;
+    log_writer.?.flush() catch return;
+
+} 
+
+
 
 pub const Callback: type = *const fn (*Context) anyerror!void;
 
@@ -29,7 +47,8 @@ pub const State = enum {
 
 pub const ServerError = error{ Server, Client, Unknown, Default };
 
-/// A stuct for housing an http route paramaters have a ':' wilcards are '\*'
+/// a handler for a route
+/// http route paramaters have a ':' wilcards have '\*'
 /// if a requested route matches the path  and the method the callback function is called
 pub const Route = struct {
     path: []const u8 = "/",
@@ -103,16 +122,14 @@ pub fn static(c: *Context) !void {
     const request = c.request;
     const allocator = c.allocator;
     if (conf.hideDotFiles and std.mem.containsAtLeast(u8, request.head.target, 1, "/.")) {
-        std.debug.print("Refusing to serve {s}\n", .{request.head.target[1..]});
         request.respond("<h1>403</h1>", .{ .status = .forbidden, .keep_alive = false }) catch return ServerError.Server;
     }
-    std.debug.print("static {s}\n", .{request.head.target[1..]});
+    debugPrint("static {s}\n", .{request.head.target[1..]});
 
     const file = blk: {
         if (!std.mem.containsAtLeastScalar(u8, request.head.target[1..], 1, '.')) {
             const path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ request.head.target[1..], "index.html" });
-            defer allocator.free(path);
-            std.debug.print("static {s}\n", .{path});
+            debugPrint("static {s}\n", .{path});
 
             break :blk std.Io.Dir.cwd().openFile(c.io, path, .{ .mode = .read_only }) catch {
                 four0four(c) catch return ServerError.Server;
@@ -129,10 +146,8 @@ pub fn static(c: *Context) !void {
     defer file.close(c.io);
     const file_size = try file.length(c.io);
     const body: []u8 = try allocator.alloc(u8, file_size);
-    defer allocator.free(body);
     var reader = file.reader(c.io, body);
     _ = try reader.interface.readSliceAll(body);
-    defer allocator.free(body);
     request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
 }
 
@@ -163,11 +178,12 @@ pub const Router = struct {
             if (r.match(request.head.target[0..query], request.head.method)) {
                 var c: Context = try .init(request, r, allocator, io);
 
-                std.debug.print("match: {s}\n", .{r.path});
+                debugPrint("match: {s}\n", .{r.path});
                 r.run(&c) catch |err| {
-                    std.debug.print("error: {}\n", .{err});
+                    debugPrint("error: {}\n", .{err});
                     return;
                 };
+                return;
             }
         }
         var c: Context = try .init(request, &notFound, allocator, io);
@@ -186,12 +202,12 @@ pub const Server = struct {
     allocator: std.mem.Allocator,
     server: std.Io.net.Server,
     address: std.Io.net.IpAddress,
-    shouldClose: bool = false,
-
-    pub fn triggerClose(self: *Server) void {
-        self.lock.lock();
-        self.shouldClose = true;
-        self.lock.unlock();
+    should_close: bool = false,
+    lock: std.Io.Mutex,
+    pub fn triggerClose(self: *Server) !void {
+        try self.lock.lock(self.io);
+        self.should_close = true;
+        self.lock.unlock(self.io);
     }
 
     pub fn init(
@@ -202,7 +218,7 @@ pub const Server = struct {
         const addr: std.Io.net.IpAddress = try .resolve(io, settings.address, settings.port);
         const tcp_server = try addr.listen(io, .{});
         conf = settings;
-        return .{ .settings = settings, .allocator = allocator, .io = io, .address = addr, .server = tcp_server };
+        return .{ .settings = settings, .allocator = allocator, .io = io, .address = addr, .server = tcp_server, .lock = std.Io.Mutex.init };
     }
 
     /// listen on the address and port indicated from the provided config, dispatch requests via the router to the provided routes
@@ -227,7 +243,7 @@ pub const Server = struct {
         // Initialize worker states
         // Spawn workers
         for (0..worker_count) |i| {
-            std.debug.print("Spawning worker: {}\n", .{i + 1});
+            debugPrint("Spawning worker: {}\n", .{i + 1});
             workers[i] = try std.Thread.spawn(.{}, listen, .{ self, i, &worker_states[i], router });
         }
 
@@ -241,17 +257,17 @@ pub const Server = struct {
                     idle_count += 1;
                 }
                 if (worker_states[i] == .err) {
-                    std.debug.print("Worker {d} stopped. Restarting...\n", .{i + 1});
+                    debugPrint("Worker {d} stopped. Restarting...\n", .{i + 1});
                     workers[i] = try std.Thread.spawn(.{}, listen, .{ self, i, &worker_states[i], router });
                 }
             }
-            if (self.shouldClose == true and idle_count >= worker_count) {
+            if (self.should_close == true and idle_count >= worker_count) {
                 for (0..worker_count) |i| {
-                    std.debug.print("Killing worker: {}\n", .{i + 1});
+                    debugPrint("Killing worker: {}\n", .{i + 1});
                 }
                 std.process.exit(0);
 
-                std.debug.print("\nClosing due to external request\n", .{});
+                debugPrint("\nClosing due to external request\n", .{});
                 return;
             }
 
@@ -269,26 +285,26 @@ pub const Server = struct {
 
         state.* = .waiting;
         errdefer state.* = .err; // on error this thread will be killed and replaced
-        std.debug.print("path {s}\n", .{router.routes.items[0].path});
+        debugPrint("path {s}\n", .{router.routes.items[0].path});
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
 
-        while (!self.shouldClose) {
+        while (!self.should_close) {
             var stream = try self.server.accept(io);
             var connection_reader = stream.reader(io, &recv_buffer);
             var connection_writer = stream.writer(io, &send_buffer);
             var server: std.http.Server = .init(&connection_reader.interface, &connection_writer.interface);
-            std.debug.print("{d} - {any}\n", .{ id, state });
+            debugPrint("{d} - {any}\n", .{ id, state });
             state.* = .waiting;
             state.* = .busy; // tell the parent server that we are answering a request
             // Fixed: Create reader and writer from connection.stream
 
-            if (self.shouldClose) {
+            if (self.should_close) {
                 return;
             }
             var request = try server.receiveHead();
             //print which path we are reaching
-            std.debug.print("Worker #{d}: {s} \n", .{ id, request.head.target });
+            debugPrint("Worker #{d}: {s} \n", .{ id, request.head.target });
             // this is to ensure clean memory usage but can be bypassed in config.json
             try router.route(self.io, &request, arena.allocator());
             state.* = .waiting;
@@ -310,15 +326,11 @@ pub const Parser = struct {
         const body = try reader.readAlloc(allocator, request.head.content_length.?);
         defer allocator.free(body);
 
-        std.debug.print("Body: {s}\n", .{body});
-
         // Parse the JSON body - this creates a copy of the data
         const parsed = try std.json.parseFromSlice(T, allocator, body, .{
             .ignore_unknown_fields = true,
             .allocate = .alloc_always, // Force allocation of strings
         });
-
-        std.debug.print("Parsed: {any}\n", .{parsed});
 
         // Don't free parsed here - the caller needs to call parsed.deinit()
         return parsed.value;
@@ -338,8 +350,8 @@ pub const Parser = struct {
                     if (delim != null) {
                         const k = kv[0..delim.?];
                         const v = kv[delim.? + 1 .. kv.len];
-                        std.debug.print("\ncookie name: {s}\n", .{k});
-                        std.debug.print("\ncookie value: {s}\n", .{v});
+                        debugPrint("\ncookie name: {s}\n", .{k});
+                        debugPrint("\ncookie value: {s}\n", .{v});
                         try cookies.put(k, v);
                     }
                     _ = i.next();
@@ -433,7 +445,7 @@ pub const Parser = struct {
                 if (std.mem.startsWith(u8, token, l)) {
                     const i = f.name.len + 1;
                     if (f.type == []const u8 or f.type == ?[]const u8) {
-                        std.debug.print("string \n", .{});
+                        debugPrint("string \n", .{});
                         const field = try allocator.alloc(u8, token.len - i);
                         std.mem.copyForwards(u8, field, token[i..]);
                         @field(x, f.name) = field;

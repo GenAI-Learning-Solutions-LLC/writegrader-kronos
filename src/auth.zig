@@ -5,7 +5,6 @@ const fmt = @import("fmt.zig");
 const builtin = @import("builtin");
 const crypto = std.crypto;
 
-const stdout = std.io.getstdout().writer();
 
 
 pub const AuthBody = struct {
@@ -76,7 +75,7 @@ pub fn decodeAuth(allocator: std.mem.Allocator, cookie: []const u8) !AuthBody {
     defer allocator.free(decoded);
     
     try decoder.decode(decoded, payload_b64);
-    std.debug.print("debug: {s}\n", .{decoded});
+    server.debugPrint("debug: {s}\n", .{decoded});
     // Parse JSON
     const parsed = try std.json.parseFromSlice(AuthBody, allocator, decoded, .{
         .ignore_unknown_fields = true,

@@ -18,12 +18,12 @@ pub const routes = &[_]server.Route{
 };
 
 fn index_middleware(c: *Context) !void {
-    std.debug.print("Hit the middleware\n", .{});
+    server.debugPrint("Hit the middleware\n", .{});
     try c.put("foo", "bar");
 }
 
 fn index(c: *Context) !void {
-    std.debug.print("value from the middleware '{s}'\n", .{c.get("foo").?});
+    server.debugPrint("value from the middleware '{s}'\n", .{c.get("foo").?});
 
     var value: []const u8 = "This is a template string, use a query string to replace it. (?value=something)";
     const query = server.Parser.query(struct { value: ?[]const u8 }, c.allocator, c.request);

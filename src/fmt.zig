@@ -1,5 +1,4 @@
 const std = @import("std");
-
 pub fn renderTemplate(
     io: std.Io,
     path: []const u8,
@@ -22,7 +21,6 @@ pub fn renderTemplate(
 
     inline for (std.meta.fields(@TypeOf(x))) |f| {
         const l = try std.fmt.allocPrint(allocator, "${s}$", .{f.name});
-        std.debug.print("\n\n{s}\n\n", .{l});
         defer allocator.free(l);
         var pieces = std.mem.tokenizeSequence(u8, new_body.items, l);
         while (pieces.peek() != null) {
