@@ -27,5 +27,4 @@ pub fn main(init: std.process.Init) !void {
 
     // run actual exit
     try s.runServer(.{ .routes = routes });
-    try s.triggerClose();
 }

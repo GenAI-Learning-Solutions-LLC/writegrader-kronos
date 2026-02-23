@@ -5,7 +5,6 @@ const fmt = @import("fmt.zig");
 const server = @import("server.zig");
 const Context = server.Context;
 const Callback = server.Callback;
-const stdout = std.io.getStdOut().writer();
 
 pub const routes = &[_]server.Route{
     .{ .path = "/", .middleware = &[_]Callback{

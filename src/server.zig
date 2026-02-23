@@ -123,6 +123,7 @@ pub fn static(c: *Context) !void {
     const allocator = c.allocator;
     if (conf.hideDotFiles and std.mem.containsAtLeast(u8, request.head.target, 1, "/.")) {
         request.respond("<h1>403</h1>", .{ .status = .forbidden, .keep_alive = false }) catch return ServerError.Server;
+        return;
     }
     debugPrint("static {s}\n", .{request.head.target[1..]});
 
@@ -153,8 +154,6 @@ pub fn static(c: *Context) !void {
 
 ///this route returns a 404 error and is called when no other route matched
 const notFound = Route{ .callback = four0four };
-/// this route return 500 and is called after an error.
-const internalError = Route{ .callback = five00 };
 
 ///this struct is a wrapper around a std.ArrayList(Route) call Router.route to find the correct route for a request
 pub const Router = struct {
@@ -266,9 +265,6 @@ pub const Server = struct {
                     debugPrint("Killing worker: {}\n", .{i + 1});
                 }
                 std.process.exit(0);
-
-                debugPrint("\nClosing due to external request\n", .{});
-                return;
             }
 
             _ = try std.Io.sleep(self.io, std.Io.Duration.fromMilliseconds(1000), std.Io.Clock.real);
