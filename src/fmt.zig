@@ -36,4 +36,3 @@ pub fn renderTemplate(
     const out = try new_body.toOwnedSlice(allocator);
     return out;
 }
-

@@ -22,7 +22,7 @@ pub const ItemList = struct {
     }
 };
 
-pub fn getItemPkSk(allocator: std.mem.Allocator, prefix: []const u8, pk: []const u8, sk: []const u8) !?[]const u8 {
+pub fn getItemPkSk(comptime T: type, allocator: std.mem.Allocator, prefix: []const u8, pk: []const u8, sk: []const u8) !?T {
     const cpx = try allocator.dupeZ(u8, prefix);
     defer allocator.free(cpx);
     const cpk = try allocator.dupeZ(u8, pk);
@@ -31,7 +31,9 @@ pub fn getItemPkSk(allocator: std.mem.Allocator, prefix: []const u8, pk: []const
     defer allocator.free(csk);
     const result = dynamo.get_item_pk_sk(cpx, cpk, csk) orelse return null;
     defer std.c.free(result);
-    return try allocator.dupe(u8, std.mem.span(result));
+    return try std.json.parseFromSliceLeaky(T, allocator, std.mem.span(result), .{
+        .ignore_unknown_fields = true,
+    });
 }
 
 pub fn deleteItemPkSk(allocator: std.mem.Allocator, prefix: []const u8, pk: []const u8, sk: []const u8, owner: ?[]const u8) !void {
