@@ -107,9 +107,7 @@ pub fn getItemsOwnerPk(comptime T: type, allocator: std.mem.Allocator, prefix: [
     const result = try allocator.alloc(T, raw.count);
     server.debugPrint("result count {d} \n", .{result.len});
     for (0..raw.count) |i| {
-        const parsed = try std.json.parseFromSlice(T, allocator, std.mem.span(raw.items[i]), .{});
-        defer parsed.deinit();
-        result[i] = parsed.value;
+        result[i] = try std.json.parseFromSliceLeaky(T, allocator, std.mem.span(raw.items[i]), .{ .ignore_unknown_fields = true });
     }
     return result;
 }

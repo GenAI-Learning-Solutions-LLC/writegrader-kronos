@@ -17,6 +17,8 @@ pub fn index(c: *Context) !void {
     const headers = &[_]std.http.Header{
         .{ .name = "Content-Type", .value = "application/json" },
         .{ .name = "Connection", .value = "close" },
+        .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
+        .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
     };
     server.debugPrint("Here\n", .{});
     const params = server.Parser.params(IndexParams, c) catch {
