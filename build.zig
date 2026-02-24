@@ -15,6 +15,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addIncludePath(b.path("src"));
     exe.root_module.addCSourceFile(.{ .file = b.path("src/dynamo.c"), .flags = &.{} });
     exe.root_module.linkSystemLibrary("curl", .{});
+    exe.root_module.linkSystemLibrary("sqlite3", .{});
+
     b.installArtifact(exe);
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
