@@ -1,4 +1,5 @@
 zig-out/*
 zig-out
 .zig-cache/*
+.env
 .zig-cache

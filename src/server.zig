@@ -215,7 +215,7 @@ pub const Server = struct {
         settings: *Config,
     ) !Server {
         const addr: std.Io.net.IpAddress = try .resolve(io, settings.address, settings.port);
-        const tcp_server = try addr.listen(io, .{});
+        const tcp_server = try addr.listen(io, .{ .reuse_address = true });
         conf = settings;
         return .{ .settings = settings, .allocator = allocator, .io = io, .address = addr, .server = tcp_server, .lock = std.Io.Mutex.init };
     }
