@@ -32,14 +32,19 @@ const indexquery = struct {
 
 
 pub fn decodeAuth(allocator: std.mem.Allocator, cookie: []const u8) !AuthBody {
+        std.debug.print("{d}\n", .{35});
+
     const secret = dynamo.c.getenv("JWT_SECRET");
-    
+    if (secret == null){
+        return error.NoSecret;
+
+    }
     // Split JWT into parts
     var parts = std.mem.splitScalar(u8, cookie, '.');
     const header_b64 = parts.next() orelse return error.InvalidJWT;
     const payload_b64 = parts.next() orelse return error.InvalidJWT;
     const signature_b64 = parts.next() orelse return error.InvalidJWT;
-    
+    std.debug.print("{d}\n", .{45});
     // Verify signature
     const message = cookie[0..(header_b64.len + 1 + payload_b64.len)];
     

@@ -347,7 +347,6 @@ pub const Parser = struct {
                         const k = kv[0..delim.?];
                         const v = kv[delim.? + 1 .. kv.len];
                         debugPrint("\ncookie name: {s}\n", .{k});
-                        debugPrint("\ncookie value: {s}\n", .{v});
                         try cookies.put(k, v);
                     }
                     _ = i.next();

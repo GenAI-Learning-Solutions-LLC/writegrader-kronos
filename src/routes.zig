@@ -8,12 +8,15 @@ const Callback = server.Callback;
 const dynamo = @import("dynamo.zig");
 const auth = @import("auth.zig");
 const user_routes = @import("routes/user_routes.zig");
+const sub_routes = @import("routes/submission_routes.zig");
 pub const routes = &[_]server.Route{
     .{ .path = "/", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = user_routes.index },
+    .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = sub_routes.index },
     .{ .path = "/static/*", .callback = server.static },
-
 };
 
 
