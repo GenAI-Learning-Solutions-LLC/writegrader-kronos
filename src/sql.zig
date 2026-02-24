@@ -123,7 +123,10 @@ pub fn getAll(allocator: std.mem.Allocator, sql: []const u8, args: anytype) ![][
 
     var stmt: ?*c.sqlite3_stmt = null;
     const rc = c.sqlite3_prepare_v2(thread_db, sql.ptr, @intCast(sql.len), &stmt, null);
-    if (rc != c.SQLITE_OK) return error.PrepareFailed;
+    if (rc != c.SQLITE_OK) {
+        std.debug.print("sqlite3_prepare_v2 error: {s}\n", .{std.mem.span(c.sqlite3_errmsg(thread_db.?))});
+        return error.PrepareFailed;
+    }
     defer _ = c.sqlite3_finalize(stmt);
 
     const fields = @typeInfo(@TypeOf(args)).@"struct".fields;

@@ -105,6 +105,7 @@ pub fn getItemsOwnerPk(comptime T: type, allocator: std.mem.Allocator, prefix: [
     var raw = dynamo.get_items_owner_pk(cpx, cuid, caid);
     defer dynamo.item_list_free(&raw);
     const result = try allocator.alloc(T, raw.count);
+    server.debugPrint("result count {d} \n", .{result.len});
     for (0..raw.count) |i| {
         const parsed = try std.json.parseFromSlice(T, allocator, std.mem.span(raw.items[i]), .{});
         defer parsed.deinit();

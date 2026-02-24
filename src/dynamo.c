@@ -800,29 +800,46 @@ ItemList get_items_owner_dt(const char *user_id, const char *datatype) {
         return result;
     }
 
-    Buf body = {0};
-    b_fmt(&body,
-          "{\"TableName\":\"%s\","
-          "\"IndexName\":\"OWNER-DATATYPE-index\","
-          "\"KeyConditionExpression\":\"#owner = :owner and DATATYPE = "
-          ":datatype\","
-          "\"ExpressionAttributeNames\":{\"#owner\":\"OWNER\"},"
-          "\"ExpressionAttributeValues\":{"
-          "\":owner\":{\"S\":\"%s\"},"
-          "\":datatype\":{\"S\":\"%s\"}"
-          "}}",
-          table, user_id, datatype);
+    char *last_key = NULL;
+    do {
+        Buf body = {0};
+        b_fmt(&body,
+              "{\"TableName\":\"%s\","
+              "\"IndexName\":\"OWNER-DATATYPE-index\","
+              "\"KeyConditionExpression\":\"#owner = :owner and DATATYPE = "
+              ":datatype\","
+              "\"ExpressionAttributeNames\":{\"#owner\":\"OWNER\"},"
+              "\"ExpressionAttributeValues\":{"
+              "\":owner\":{\"S\":\"%s\"},"
+              "\":datatype\":{\"S\":\"%s\"}"
+              "}",
+              table, user_id, datatype);
+        append_exclusive_start_key(&body, last_key);
+        free(last_key);
+        last_key = NULL;
 
-    char *resp = dynamo_request("DynamoDB_20120810.Query", body.b);
-    free(body.b);
-    if (!resp)
-        return result;
+        char *resp = dynamo_request("DynamoDB_20120810.Query", body.b);
+        free(body.b);
+        if (!resp) {
+            item_list_free(&result);
+            return (ItemList){0};
+        }
 
-    result = parse_query_items(resp, NULL);
-    free(resp);
+        ItemList page = parse_query_items(resp, &last_key);
+        free(resp);
+
+        if (page.count) {
+            result.items = realloc(result.items, (result.count + page.count) *
+                                                     sizeof(char *));
+            memcpy(result.items + result.count, page.items,
+                   page.count * sizeof(char *));
+            result.count += page.count;
+            free(page.items);
+        }
+    } while (last_key);
+
     return result;
 }
-
 /*
  * Queries GSI "DATATYPE-pk-index" with pagination.
  * Returns ItemList of unmarshalled items; caller must call item_list_free().
@@ -893,7 +910,7 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
 
     char pk_val[512];
     snprintf(pk_val, sizeof(pk_val), "%s#%s", prefix, string_stem(aid));
-
+    int pages = 0;
     char *last_key = NULL;
     do {
         Buf body = {0};
@@ -921,7 +938,7 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
 
         ItemList page = parse_query_items(resp, &last_key);
         free(resp);
-
+        printf("pages: %d", pages++);
         if (page.count) {
             result.items = realloc(result.items, (result.count + page.count) *
                                                      sizeof(char *));
