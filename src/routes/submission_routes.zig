@@ -12,7 +12,7 @@ const IndexParams = struct {
     aid: []const u8,
 };
 
-pub fn assignmentSubs(c: *Context) !void {
+pub fn index(c: *Context) !void {
     const user = try dynamo.getUser(c);
     const headers = &[_]std.http.Header{
         .{ .name = "Content-Type", .value = "application/json" },
@@ -26,5 +26,6 @@ pub fn assignmentSubs(c: *Context) !void {
     server.debugPrint("Here {s}\n", .{params.aid});
     const submissions = try dynamo.getItemsOwnerPk(dynamo.Submission, std.heap.c_allocator, "SUBMISSION", user.email, params.aid);
     defer std.heap.c_allocator.free(submissions);
-    try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
+
+    try server.sendJson(std.heap.c_allocator, c.request, submissions, .{ .extra_headers = headers });
 }

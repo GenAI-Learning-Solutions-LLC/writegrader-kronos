@@ -11,31 +11,14 @@ const user_routes = @import("routes/user_routes.zig");
 const sub_routes = @import("routes/submission_routes.zig");
 const sql = @import("sql.zig");
 pub const routes = &[_]server.Route{
-    .{ .path = "/*", .method = .OPTIONS, .callback = preflight },
-    .{ .path = "/", .middleware = &[_]Callback{
-        authMiddleware,
-    }, .callback = user_routes.index },
     .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
         authMiddleware,
-    }, .callback = sub_routes.assignmentSubs },
+    }, .callback = sub_routes.index },
     .{ .path = "/static/*", .callback = server.static },
 
 };
 
-pub fn preflight(c: *Context) !void {
-    const headers = &[_]std.http.Header{
-        .{ .name = "Content-Type", .value = "application/json" },
-        .{ .name = "Connection", .value = "close" },
-        .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
-        .{ .name = "Access-Control-Allow-Methods", .value = "GET, POST, PUT, DELETE, OPTIONS" },
-        .{ .name = "Access-Control-Allow-Headers", .value = "Content-Type" },
-        .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
-    };
-    try c.request.respond("", .{ .status = .ok, .keep_alive = false,.extra_headers = headers });
 
-
-
-}
 
 pub fn index(c: *Context) !void {
     const user = try dynamo.getUser(c);

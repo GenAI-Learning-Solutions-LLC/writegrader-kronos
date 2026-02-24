@@ -2,22 +2,18 @@ const std = @import("std");
 const Config = @import("config.zig");
 const builtin = @import("builtin");
 
-
 pub var log_writer: ?*std.Io.Writer = null;
 
 pub fn debugPrint(comptime fstring: []const u8, values: anytype) void {
-    if (log_writer == null){
-        if (builtin.mode == .Debug){
+    if (log_writer == null) {
+        if (builtin.mode == .Debug) {
             std.debug.print(fstring, values);
         }
         return;
     }
     log_writer.?.print(fstring, values) catch return;
     log_writer.?.flush() catch return;
-
-} 
-
-
+}
 
 pub const Callback: type = *const fn (*Context) anyerror!void;
 
@@ -174,6 +170,18 @@ pub const Router = struct {
     pub fn route(self: Router, io: std.Io, request: *std.http.Server.Request, allocator: std.mem.Allocator) anyerror!void {
         for (self.routes.items) |*r| {
             const query = std.mem.indexOf(u8, request.head.target, "?") orelse request.head.target.len;
+            if (request.head.method == .OPTIONS) {
+                const headers = &[_]std.http.Header{
+                    .{ .name = "Content-Type", .value = "application/json" },
+                    .{ .name = "Connection", .value = "close" },
+                    .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
+                    .{ .name = "Access-Control-Allow-Methods", .value = "GET, POST, PUT, DELETE, OPTIONS" },
+                    .{ .name = "Access-Control-Allow-Headers", .value = "Content-Type" },
+                    .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
+                };
+                try request.respond("", .{ .status = .ok, .keep_alive = false, .extra_headers = headers });
+                return;
+            }
             if (r.match(request.head.target[0..query], request.head.method)) {
                 var c: Context = try .init(request, r, allocator, io);
 
@@ -378,7 +386,7 @@ pub const Parser = struct {
         const qIndex = std.mem.indexOf(u8, request.head.target, "?") orelse return null;
         return keyValue(T, allocator, request.head.target[qIndex + 1 ..], "&") catch return null;
     }
-    
+
     pub const ParseErrors = error{MissingField};
 
     /// converts params to struct
@@ -394,7 +402,7 @@ pub const Parser = struct {
                     return ParseErrors.MissingField;
                 }
             };
-            if (t == null){
+            if (t == null) {
                 if (@typeInfo(f.type) == .optional) {
                     @field(x, f.name) = null;
                     continue;
@@ -402,7 +410,7 @@ pub const Parser = struct {
                     return ParseErrors.MissingField;
                 }
             }
-            
+
             @field(x, f.name) = t.?;
         }
         return x;
