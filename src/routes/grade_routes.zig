@@ -98,10 +98,12 @@ pub fn gradeCriterion(c: *Context) !void {
     const use_claude = if (dynamo.c.getenv("FORCE_CLAUDE") != null) "true" else "false";
     const user_json = c.get("user") orelse "{}";
 
+    const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
+    const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
+
     const payload = try std.fmt.allocPrint(c.allocator,
-        \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":"{s}", "instructions":"{s}", "pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
-    , .{ partial.criterion,body, partial.instructions orelse "",  user_json, use_claude, rev_model });
-    std.debug.print( "instructions: {s} \n", .{partial.instructions orelse ""});
+        \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"instructions":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
+    , .{ criterion_json, instructions_json, body, user_json, use_claude, rev_model });
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
 
@@ -150,9 +152,11 @@ pub fn gradeCriterionAsync(c: *Context) !void {
     const use_claude = if (dynamo.c.getenv("FORCE_CLAUDE") != null) "true" else "false";
     const user_json = c.get("user") orelse "{}";
 
+    const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
+
     const payload = try std.fmt.allocPrint(c.allocator,
-        \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":"{s}", "pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
-    , .{ partial.criterion,body, user_json, use_claude, rev_model });
+        \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
+    , .{ criterion_json, body, user_json, use_claude, rev_model });
 
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
@@ -170,7 +174,7 @@ pub fn gradeCriterionAsync(c: *Context) !void {
         return;
     }
 
-    try server.sendJson(c.allocator, c.request, rc, .{ .extra_headers = headers });
+    try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 
 
