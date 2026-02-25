@@ -35,6 +35,7 @@ pub fn index(c: *Context) !void {
 
 
 pub fn getAllSubmissions(c: *Context) !void {
+    server.debugPrint("getting item\n", .{});
     const user = try dynamo.getUser(c);
     const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator,  user.email, "SUBMISSION");
     try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
