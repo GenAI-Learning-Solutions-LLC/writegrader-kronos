@@ -32,6 +32,16 @@ pub fn index(c: *Context) !void {
     try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
 }
 
+
+
+pub fn getAllSubmissions(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+    const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator,  user.email, "SUBMISSION");
+    try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
+}
+
+
+
 //todo check ownership using shared access
 const SubmissionParams = struct {
     cid: []const u8,
@@ -53,6 +63,7 @@ pub fn get_submission(c: *Context) !void {
             try server.sendJson(c.allocator, c.request, s, .{ .extra_headers = headers });
             return;
         }
+
     }
     try server.sendJson(c.allocator, c.request, null, .{ .extra_headers = headers });
 }

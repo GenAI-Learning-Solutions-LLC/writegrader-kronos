@@ -33,6 +33,7 @@ pub fn getItemPkSk(comptime T: type, allocator: std.mem.Allocator, prefix: []con
     defer std.c.free(result);
     return try std.json.parseFromSliceLeaky(T, allocator, std.mem.span(result), .{
         .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
     });
 }
 
@@ -107,7 +108,7 @@ pub fn getItemsOwnerPk(comptime T: type, allocator: std.mem.Allocator, prefix: [
     const result = try allocator.alloc(T, raw.count);
     server.debugPrint("result count {d} \n", .{result.len});
     for (0..raw.count) |i| {
-        result[i] = try std.json.parseFromSliceLeaky(T, allocator, std.mem.span(raw.items[i]), .{ .ignore_unknown_fields = true });
+        result[i] = try std.json.parseFromSliceLeaky(T, allocator, std.mem.span(raw.items[i]), .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
     }
     return result;
 }
