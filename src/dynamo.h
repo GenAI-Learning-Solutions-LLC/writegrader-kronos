@@ -68,4 +68,10 @@ int http_post(const char *url, const char *payload);
 /* async Lambda invocation (InvocationType: Event); returns 0 on success, -1 on failure */
 int invoke_lambda(const char *function_name, const char *payload);
 
+/* HTTP POST returning heap-allocated response body; caller frees. NULL on failure */
+char *http_post_sync(const char *url, const char *payload);
+
+/* synchronous Lambda invocation (InvocationType: RequestResponse); returns heap-allocated response body, caller frees. NULL on failure */
+char *invoke_lambda_sync(const char *function_name, const char *payload);
+
 #endif /* DYNAMO_H */
