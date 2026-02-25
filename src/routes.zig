@@ -27,6 +27,11 @@ pub const routes = &[_]server.Route{
         authMiddleware,
     }, .callback = grade_routes.grade },
 
+    .{ .path = "/grade/criterion", .method = .POST, .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = grade_routes.gradeCriterion },
+
+
     .{ .path = "/static/*", .callback = server.static },
 
 };
