@@ -62,4 +62,10 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
  */
 int save_item(const char *item_json, const char *owner);
 
+/* simple HTTP POST with JSON content-type; returns 0 on success, -1 on failure */
+int http_post(const char *url, const char *payload);
+
+/* async Lambda invocation (InvocationType: Event); returns 0 on success, -1 on failure */
+int invoke_lambda(const char *function_name, const char *payload);
+
 #endif /* DYNAMO_H */

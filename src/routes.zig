@@ -9,6 +9,7 @@ const dynamo = @import("dynamo.zig");
 const auth = @import("auth.zig");
 const user_routes = @import("routes/user_routes.zig");
 const sub_routes = @import("routes/submission_routes.zig");
+const grade_routes = @import("routes/grade_routes.zig");
 const sql = @import("sql.zig");
 pub const routes = &[_]server.Route{
     .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
@@ -21,6 +22,10 @@ pub const routes = &[_]server.Route{
     .{ .path = "/courses/:cid/assignments/:aid/submissions/:sid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.get_submission },
+
+    .{ .path = "/grade", .method = .POST, .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = grade_routes.grade },
 
     .{ .path = "/static/*", .callback = server.static },
 
@@ -49,7 +54,6 @@ fn authMiddleware(c: *Context) !void {
     if (cached) |rows| {
         if (rows.len > 0) {
             const data = rows[0][9 .. rows[0].len - 2];
-            std.debug.print("cached user:{s}\n", .{data});
             try c.put("user", data);
             return;
         }
@@ -66,7 +70,6 @@ fn authMiddleware(c: *Context) !void {
     const slice = std.mem.span(result);
 
     sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('user', ?, ?,?)", .{ decoded.user, decoded.user, slice }) catch |err| {
-        std.debug.print("cache write failed: {}\n", .{err});
         try c.request.respond("", .{ .status = .internal_server_error, .keep_alive = false });
         return err;
     };

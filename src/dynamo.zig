@@ -206,7 +206,7 @@ pub const Submission = struct {
     status: []const u8,
     externalId: []const u8,
     overallFeedback: GradeItem = .{},
-    wordCount: ?f64 = null,
+    wordCount: ?f64 = 0,
     shareableLink: []const u8,
     considerations: Considerations = .{},
     criteria: []GradeItem = &.{},

@@ -37,8 +37,26 @@ pub fn index(c: *Context) !void {
 pub fn getAllSubmissions(c: *Context) !void {
     server.debugPrint("getting item\n", .{});
     const user = try dynamo.getUser(c);
-    const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator,  user.email, "SUBMISSION");
+    const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
     try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
+}
+
+pub fn getUnapprovedSubmissions(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+    const all = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
+    var count: usize = 0;
+    for (all) |s| {
+        if (!std.mem.eql(u8, s.status, "graded")) count += 1;
+    }
+    const unapproved = try c.allocator.alloc(dynamo.Submission, count);
+    var i: usize = 0;
+    for (all) |s| {
+        if (!std.mem.eql(u8, s.status, "graded")) {
+            unapproved[i] = s;
+            i += 1;
+        }
+    }
+    try server.sendJson(c.allocator, c.request, unapproved, .{ .extra_headers = headers });
 }
 
 

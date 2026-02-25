@@ -964,6 +964,71 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
  *
  * Returns 0 on success, -1 on failure.
  */
+int http_post(const char *url, const char *payload) {
+    CURL *curl = curl_easy_init();
+    if (!curl)
+        return -1;
+
+    struct curl_slist *hdrs = NULL;
+    hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
+
+    ResponseBuf resp = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_slist_free_all(hdrs);
+    curl_easy_cleanup(curl);
+    free(resp.data);
+
+    return (res == CURLE_OK) ? 0 : -1;
+}
+
+int invoke_lambda(const char *function_name, const char *payload) {
+    const char *key_id = getenv("AWS_ACCESS_KEY_ID");
+    const char *secret = getenv("AWS_SECRET_ACCESS_KEY");
+    const char *region = getenv("AWS_REGION");
+
+    if (!key_id || !secret || !region) {
+        fprintf(stderr, "AWS credentials/region missing\n");
+        return -1;
+    }
+
+    char url[512], userpwd[256], sigv4[128];
+    snprintf(url, sizeof(url),
+             "https://lambda.%s.amazonaws.com/2015-03-31/functions/%s/invocations",
+             region, function_name);
+    snprintf(userpwd, sizeof(userpwd), "%s:%s", key_id, secret);
+    snprintf(sigv4, sizeof(sigv4), "aws:amz:%s:lambda", region);
+
+    CURL *curl = curl_easy_init();
+    if (!curl)
+        return -1;
+
+    struct curl_slist *hdrs = NULL;
+    hdrs = curl_slist_append(hdrs, "Content-Type: application/json");
+    hdrs = curl_slist_append(hdrs, "X-Amz-Invocation-Type: Event");
+
+    ResponseBuf resp = {0};
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+    curl_easy_setopt(curl, CURLOPT_AWS_SIGV4, sigv4);
+    curl_easy_setopt(curl, CURLOPT_USERPWD, userpwd);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_slist_free_all(hdrs);
+    curl_easy_cleanup(curl);
+    free(resp.data);
+
+    return (res == CURLE_OK) ? 0 : -1;
+}
+
 int save_item(const char *item_json, const char *owner) {
     const char *table = getenv("DYNAMO_TABLE_NAME");
     if (!table) {
