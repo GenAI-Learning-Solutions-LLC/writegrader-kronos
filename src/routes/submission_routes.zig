@@ -20,17 +20,16 @@ const IndexParams = struct {
 };
 pub fn index(c: *Context) !void {
     const user = try dynamo.getUser(c);
-    
+
     server.debugPrint("Here\n", .{});
     const params = server.Parser.params(IndexParams, c) catch {
         try c.request.respond("<h1>nothing found</h1>", .{ .status = .ok });
         return;
     };
     server.debugPrint("Here {s}\n", .{params.aid});
-    const submissions = try dynamo.getItemsOwnerPk(dynamo.Submission, std.heap.c_allocator, "SUBMISSION", user.email, params.aid);
-    defer std.heap.c_allocator.free(submissions);
+    const submissions = try dynamo.getItemsOwnerPk(dynamo.Submission, c.allocator, "SUBMISSION", user.email, params.aid);
 
-    try server.sendJson(std.heap.c_allocator, c.request, submissions, .{ .extra_headers = headers });
+    try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
 }
 
 //todo check ownership using shared access
@@ -48,12 +47,12 @@ pub fn get_submission(c: *Context) !void {
         return;
     };
     server.debugPrint("Here {s}\n", .{params.aid});
-    const submission = try dynamo.getItemPkSk(dynamo.Submission, std.heap.c_allocator, "SUBMISSION", params.aid, params.sid);
-    defer std.heap.c_allocator.free(submission);
-    if (submission != null)  {
-        if (std.mem.eql(u8, user.email, submission.?.OWNER)) {
-            try server.sendJson(std.heap.c_allocator, c.request, submission.?, .{ .extra_headers = headers });
+    const submission = try dynamo.getItemPkSk(dynamo.Submission, c.allocator, "SUBMISSION", params.aid, params.sid);
+    if (submission) |s| {
+        if (std.mem.eql(u8, user.email, s.OWNER)) {
+            try server.sendJson(c.allocator, c.request, s, .{ .extra_headers = headers });
+            return;
         }
     }
-    try server.sendJson(std.heap.c_allocator, c.request, null, .{ .extra_headers = headers });
+    try server.sendJson(c.allocator, c.request, null, .{ .extra_headers = headers });
 }
