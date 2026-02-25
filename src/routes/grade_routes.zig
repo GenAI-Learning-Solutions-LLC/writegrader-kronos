@@ -68,6 +68,8 @@ pub fn grade(c: *Context) !void {
 
 const GradeCritBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
+    instructions: ?[]const u8 = null,
+
     criterion: []const u8,
 };
 pub fn gradeCriterion(c: *Context) !void {
@@ -97,9 +99,9 @@ pub fn gradeCriterion(c: *Context) !void {
     const user_json = c.get("user") orelse "{}";
 
     const payload = try std.fmt.allocPrint(c.allocator,
-        \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":"{s}", "pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
-    , .{ partial.criterion,body, user_json, use_claude, rev_model });
-
+        \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":"{s}", "instructions":"{s}", "pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
+    , .{ partial.criterion,body, partial.instructions orelse "",  user_json, use_claude, rev_model });
+    std.debug.print( "instructions: {s} \n", .{partial.instructions orelse ""});
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
 
