@@ -158,7 +158,31 @@ pub fn saveSubmission(c: *Context) !void {
     const reader = try c.request.readerExpectContinue(read_buf);
     const body = try reader.readAlloc(c.allocator, content_length);
 
-    dynamo.saveItem(c.allocator, body, user.email) catch {
+    var parsed = try std.json.parseFromSliceLeaky(std.json.Value, c.allocator, body, .{ .allocate = .alloc_always });
+
+    switch (parsed) {
+        .object => |*obj| {
+            var ts_buf: [32]u8 = undefined;
+            dynamo.c.iso_timestamp(&ts_buf, ts_buf.len);
+            const ts = try c.allocator.dupe(u8, std.mem.sliceTo(&ts_buf, 0));
+            try obj.put("updatedAt", .{ .string = ts });
+
+            if (obj.get("pk")) |pk_val| {
+                switch (pk_val) {
+                    .string => |pk| {
+                        const stem = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
+                        try obj.put("assignmentId", .{ .string = stem });
+                    },
+                    else => {},
+                }
+            }
+        },
+        else => {},
+    }
+
+    const modified_body = try std.json.Stringify.valueAlloc(c.allocator, parsed, .{});
+
+    dynamo.saveItem(c.allocator, modified_body, user.email) catch {
         try c.request.respond("", .{ .status = .forbidden });
         return;
     };

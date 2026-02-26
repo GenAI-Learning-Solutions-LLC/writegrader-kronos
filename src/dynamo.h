@@ -65,6 +65,9 @@ int save_item(const char *item_json, const char *owner);
 /* accepts plain JSON (no DynamoDB type annotations); marshals internally */
 int save_item_plain(const char *plain_json, const char *owner);
 
+/* writes current UTC time as ISO 8601 into buf (e.g. "2024-01-15T10:30:00.000Z") */
+void iso_timestamp(char *buf, size_t len);
+
 /* like get_items_owner_dt but with a ProjectionExpression; extra_names is a JSON
    fragment of additional ExpressionAttributeNames entries (may be NULL or "") */
 ItemList get_items_owner_dt_proj(const char *user_id, const char *datatype,

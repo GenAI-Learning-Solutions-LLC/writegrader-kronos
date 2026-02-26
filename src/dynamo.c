@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 /* ================================================================== */
 /* types                                                              */
@@ -801,6 +802,13 @@ int delete_item_pk_sk(const char *prefix, const char *pk, const char *sk,
         return -1;
     free(resp);
     return 0;
+}
+
+void iso_timestamp(char *buf, size_t len) {
+    time_t t = time(NULL);
+    struct tm tm_info;
+    gmtime_r(&t, &tm_info);
+    strftime(buf, len, "%Y-%m-%dT%H:%M:%S.000Z", &tm_info);
 }
 
 int save_item_plain(const char *plain_json, const char *owner) {
