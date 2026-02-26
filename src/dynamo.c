@@ -969,18 +969,6 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
     return result;
 }
 
-/*
- * Saves an item to DynamoDB via PutItem.
- *
- * item_json must already be in DynamoDB wire format (with type annotations),
- * e.g. {"pk":{"S":"USER#alice"},"sk":{"S":"USER#profile"},"name":{"S":"Alice"}}
- *
- * This is the key difference from the TypeScript version, which accepted plain
- * objects and marshalled them automatically. In C you know your schema, so you
- * build the DynamoDB JSON directly.
- *
- * Returns 0 on success, -1 on failure.
- */
 int http_post(const char *url, const char *payload) {
     CURL *curl = get_curl(&tl_http_curl);
     if (!curl)

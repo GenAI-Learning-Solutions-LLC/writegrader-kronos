@@ -1,6 +1,9 @@
 const std = @import("std");
 const Config = @import("config.zig");
 const builtin = @import("builtin");
+const clib = @cImport({
+    @cInclude("dynamo.h");
+});
 
 pub var log_writer: ?*std.Io.Writer = null;
 
@@ -96,7 +99,6 @@ pub const Route = struct {
 pub fn sendJson(allocator: std.mem.Allocator, request: *std.http.Server.Request, object: anytype, options: std.http.Server.Request.RespondOptions) !void {
     const body = try std.json.Stringify.valueAlloc(allocator, object, .{});
     defer allocator.free(body);
-
     try request.respond(body, options);
 }
 
