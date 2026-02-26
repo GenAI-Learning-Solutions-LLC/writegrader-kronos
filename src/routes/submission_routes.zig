@@ -35,14 +35,39 @@ pub fn index(c: *Context) !void {
 
 
 pub fn getAllSubmissions(c: *Context) !void {
-    server.debugPrint("getting item\n", .{});
     const user = try dynamo.getUser(c);
+
+    const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
+    if (cached) |rows| {
+        if (rows.len > 0) {
+            const data = rows[0][9 .. rows[0].len - 2];
+            try c.request.respond(data, .{ .extra_headers = headers });
+            return;
+        }
+    }
+
     const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
-    try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
+    const json_body = try std.json.Stringify.valueAlloc(c.allocator, submissions, .{});
+
+    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('submissions', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
+        std.debug.print("cache write failed: {}\n", .{err});
+    };
+
+    try c.request.respond(json_body, .{ .extra_headers = headers });
 }
 
 pub fn getUnapprovedSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
+
+    const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions_unapproved' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
+    if (cached) |rows| {
+        if (rows.len > 0) {
+            const data = rows[0][9 .. rows[0].len - 2];
+            try c.request.respond(data, .{ .extra_headers = headers });
+            return;
+        }
+    }
+
     const all = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
     var count: usize = 0;
     for (all) |s| {
@@ -56,7 +81,13 @@ pub fn getUnapprovedSubmissions(c: *Context) !void {
             i += 1;
         }
     }
-    try server.sendJson(c.allocator, c.request, unapproved, .{ .extra_headers = headers });
+    const json_body = try std.json.Stringify.valueAlloc(c.allocator, unapproved, .{});
+
+    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('submissions_unapproved', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
+        std.debug.print("cache write failed: {}\n", .{err});
+    };
+
+    try c.request.respond(json_body, .{ .extra_headers = headers });
 }
 
 

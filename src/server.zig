@@ -251,7 +251,7 @@ pub const Server = struct {
         // Spawn workers
         for (0..worker_count) |i| {
             debugPrint("Spawning worker: {}\n", .{i + 1});
-            workers[i] = try std.Thread.spawn(.{}, listen, .{ self, i, &worker_states[i], router });
+            workers[i] = try std.Thread.spawn(.{.stack_size = 1024 * 512}, listen, .{ self, i, &worker_states[i], router });
         }
 
         // Monitor and respawn threads if they finish
