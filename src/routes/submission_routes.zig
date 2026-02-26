@@ -46,7 +46,19 @@ pub fn getAllSubmissions(c: *Context) !void {
    //     }
    // }
 
-    const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
+    const all = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
+    var count: usize = 0;
+    for (all) |s| {
+        if (!std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) count += 1;
+    }
+    const submissions = try c.allocator.alloc(dynamo.Submission, count);
+    var i: usize = 0;
+    for (all) |s| {
+        if (!std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) {
+            submissions[i] = s;
+            i += 1;
+        }
+    }
     const json_body = try std.json.Stringify.valueAlloc(c.allocator, submissions, .{});
 
     sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('submissions', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
@@ -71,12 +83,12 @@ pub fn getUnapprovedSubmissions(c: *Context) !void {
     const all = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
     var count: usize = 0;
     for (all) |s| {
-        if (!std.mem.eql(u8, s.status, "graded")) count += 1;
+        if (!std.mem.eql(u8, s.status, "graded") and !std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) count += 1;
     }
     const unapproved = try c.allocator.alloc(dynamo.Submission, count);
     var i: usize = 0;
     for (all) |s| {
-        if (!std.mem.eql(u8, s.status, "graded")) {
+        if (!std.mem.eql(u8, s.status, "graded") and !std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) {
             unapproved[i] = s;
             i += 1;
         }
