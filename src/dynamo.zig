@@ -173,12 +173,10 @@ pub fn getItemsOwnerPk(comptime T: type, allocator: std.mem.Allocator, prefix: [
 pub fn saveItem(allocator: std.mem.Allocator, item_json: []const u8, owner: ?[]const u8) !void {
     const cjson = try allocator.dupeZ(u8, item_json);
     defer allocator.free(cjson);
-    const cow = if (owner) |o| blk: {
-        const z = try allocator.dupeZ(u8, o);
-        break :blk z;
-    } else null;
+    const cow: ?[:0]u8 = if (owner) |o| try allocator.dupeZ(u8, o) else null;
     defer if (cow) |z| allocator.free(z);
-    const rc = dynamo.save_item(cjson, cow);
+    const cow_c: [*c]const u8 = if (cow) |z| z.ptr else null;
+    const rc = dynamo.save_item_plain(cjson, cow_c);
     if (rc != 0) return error.DynamoError;
 }
 pub const SubscriptionInfo = struct {

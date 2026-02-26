@@ -3,6 +3,7 @@ const std = @import("std");
 const server = @import("../server.zig");
 const Context = server.Context;
 const dynamo = @import("../dynamo.zig");
+const sub_routes = @import("submission_routes.zig");
 
 const headers = &[_]std.http.Header{
     .{ .name = "Content-Type", .value = "application/json" },
@@ -17,7 +18,6 @@ const GradeBodyPartial = struct {
 
 pub fn grade(c: *Context) !void {
     const user = try dynamo.getUser(c);
-    _ = user;
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });
@@ -61,6 +61,7 @@ pub fn grade(c: *Context) !void {
         return;
     }
 
+    sub_routes.invalidateSubmissionCache(user.email);
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 
@@ -128,7 +129,6 @@ pub fn gradeCriterion(c: *Context) !void {
 
 pub fn gradeCriterionAsync(c: *Context) !void {
     const user = try dynamo.getUser(c);
-    _ = user;
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });
@@ -174,6 +174,7 @@ pub fn gradeCriterionAsync(c: *Context) !void {
         return;
     }
 
+    sub_routes.invalidateSubmissionCache(user.email);
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 

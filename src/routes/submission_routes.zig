@@ -139,3 +139,30 @@ pub fn get_submission(c: *Context) !void {
     }
     try server.sendJson(c.allocator, c.request, null, .{ .extra_headers = headers });
 }
+
+pub fn invalidateSubmissionCache(user_email: []const u8) void {
+    sql.exec("DELETE FROM fetch_cache WHERE data_type IN ('submissions', 'submissions_unapproved') AND user = ?", .{user_email}) catch |err| {
+        std.debug.print("cache invalidate failed: {}\n", .{err});
+    };
+}
+
+pub fn saveSubmission(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+
+    const content_length = c.request.head.content_length orelse {
+        try c.request.respond("", .{ .status = .bad_request });
+        return;
+    };
+
+    const read_buf = try c.allocator.alloc(u8, 4096);
+    const reader = try c.request.readerExpectContinue(read_buf);
+    const body = try reader.readAlloc(c.allocator, content_length);
+
+    dynamo.saveItem(c.allocator, body, user.email) catch {
+        try c.request.respond("", .{ .status = .forbidden });
+        return;
+    };
+
+    invalidateSubmissionCache(user.email);
+    try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
+}

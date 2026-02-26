@@ -396,6 +396,109 @@ char *dynamo_unmarshal(const char *json) {
 }
 
 /* ================================================================== */
+/* marshal (plain JSON → DynamoDB wire format)                         */
+/* ================================================================== */
+
+static void marshal_value(Cur *c, Buf *out);
+
+static void marshal_array_contents(Cur *c, Buf *out) {
+    ws(c);
+    c->i++; /* skip '[' */
+    b_chr(out, '[');
+    ws(c);
+    int first = 1;
+    while (c->s[c->i] && c->s[c->i] != ']') {
+        if (!first) b_chr(out, ',');
+        first = 0;
+        marshal_value(c, out);
+        ws(c);
+        if (c->s[c->i] == ',') c->i++;
+        ws(c);
+    }
+    if (c->s[c->i] == ']') c->i++;
+    b_chr(out, ']');
+}
+
+static void marshal_object_contents(Cur *c, Buf *out) {
+    ws(c);
+    c->i++; /* skip '{' */
+    b_chr(out, '{');
+    ws(c);
+    int first = 1;
+    while (c->s[c->i] && c->s[c->i] != '}') {
+        if (!first) b_chr(out, ',');
+        first = 0;
+        Buf key_buf = {0};
+        copy_raw_value(c, &key_buf);
+        b_str(out, key_buf.b);
+        free(key_buf.b);
+        ws(c);
+        if (c->s[c->i] == ':') c->i++;
+        b_chr(out, ':');
+        marshal_value(c, out);
+        ws(c);
+        if (c->s[c->i] == ',') c->i++;
+        ws(c);
+    }
+    if (c->s[c->i] == '}') c->i++;
+    b_chr(out, '}');
+}
+
+static void marshal_value(Cur *c, Buf *out) {
+    ws(c);
+    char ch = c->s[c->i];
+
+    if (ch == '"') {
+        Buf raw = {0};
+        copy_raw_value(c, &raw);
+        b_str(out, "{\"S\":");
+        b_str(out, raw.b);
+        b_chr(out, '}');
+        free(raw.b);
+        return;
+    }
+    if (ch == '[') {
+        b_str(out, "{\"L\":");
+        marshal_array_contents(c, out);
+        b_chr(out, '}');
+        return;
+    }
+    if (ch == '{') {
+        b_str(out, "{\"M\":");
+        marshal_object_contents(c, out);
+        b_chr(out, '}');
+        return;
+    }
+    /* scalar: number, true, false, null */
+    Buf scalar = {0};
+    copy_scalar(c, &scalar);
+    if (scalar.b) {
+        if (strcmp(scalar.b, "null") == 0) {
+            b_str(out, "{\"NULL\":true}");
+        } else if (strcmp(scalar.b, "true") == 0) {
+            b_str(out, "{\"BOOL\":true}");
+        } else if (strcmp(scalar.b, "false") == 0) {
+            b_str(out, "{\"BOOL\":false}");
+        } else {
+            b_str(out, "{\"N\":\"");
+            b_str(out, scalar.b);
+            b_str(out, "\"}");
+        }
+        free(scalar.b);
+    }
+}
+
+/* converts a plain JSON object to DynamoDB wire format; caller frees */
+static char *dynamo_marshal(const char *json) {
+    Cur c = {json, 0};
+    Buf out = {0};
+    ws(&c);
+    if (c.s[c.i] != '{') return NULL;
+    marshal_object_contents(&c, &out);
+    return out.b ? out.b : strdup("{}");
+}
+
+/* ================================================================== */
 /* curl layer                                                           */
 /* ================================================================== */
 
@@ -696,6 +799,32 @@ int delete_item_pk_sk(const char *prefix, const char *pk, const char *sk,
     free(body.b);
     if (!resp)
         return -1;
+    free(resp);
+    return 0;
+}
+
+int save_item_plain(const char *plain_json, const char *owner) {
+    const char *table = getenv("DYNAMO_TABLE_NAME");
+    if (!table) {
+        fprintf(stderr, "DYNAMO_TABLE_NAME not defined\n");
+        return -1;
+    }
+
+    if (owner && check_owner(plain_json, owner) != 0) {
+        fprintf(stderr, "403\n");
+        return -1;
+    }
+
+    char *wire = dynamo_marshal(plain_json);
+    if (!wire) return -1;
+
+    Buf body = {0};
+    b_fmt(&body, "{\"TableName\":\"%s\",\"Item\":%s}", table, wire);
+    free(wire);
+
+    char *resp = dynamo_request("DynamoDB_20120810.PutItem", body.b);
+    free(body.b);
+    if (!resp) return -1;
     free(resp);
     return 0;
 }
