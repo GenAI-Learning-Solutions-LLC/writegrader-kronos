@@ -427,6 +427,11 @@ static CURL *get_curl(CURL **handle) {
     } else {
         curl_easy_reset(*handle);
     }
+    if (*handle) {
+        curl_easy_setopt(*handle, CURLOPT_TCP_KEEPALIVE, 1L);
+        curl_easy_setopt(*handle, CURLOPT_TCP_KEEPIDLE, 30L);
+        curl_easy_setopt(*handle, CURLOPT_TCP_KEEPINTVL, 10L);
+    }
     return *handle;
 }
 
