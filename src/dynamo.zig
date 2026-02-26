@@ -111,6 +111,24 @@ pub fn getItemsOwnerDtProj(comptime T: type, allocator: std.mem.Allocator, user_
     return result;
 }
 
+pub fn getItemsOwnerDtProjRaw(allocator: std.mem.Allocator, user_id: []const u8, datatype: []const u8, proj_expr: []const u8, extra_names: []const u8) ![][]const u8 {
+    const cuid = try allocator.dupeZ(u8, user_id);
+    defer allocator.free(cuid);
+    const cdt = try allocator.dupeZ(u8, datatype);
+    defer allocator.free(cdt);
+    const cproj = try allocator.dupeZ(u8, proj_expr);
+    defer allocator.free(cproj);
+    const cnames = try allocator.dupeZ(u8, extra_names);
+    defer allocator.free(cnames);
+    var raw = dynamo.get_items_owner_dt_proj(cuid, cdt, cproj, cnames);
+    defer dynamo.item_list_free(&raw);
+    const result = try allocator.alloc([]const u8, raw.count);
+    for (0..raw.count) |i| {
+        result[i] = try allocator.dupe(u8, std.mem.span(raw.items[i]));
+    }
+    return result;
+}
+
 pub fn getItemsOwnerDt(comptime T: type, allocator: std.mem.Allocator, user_id: []const u8, datatype: []const u8) ![]T {
     const cuid = try allocator.dupeZ(u8, user_id);
     defer allocator.free(cuid);

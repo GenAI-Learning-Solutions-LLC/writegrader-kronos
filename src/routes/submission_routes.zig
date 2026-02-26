@@ -37,31 +37,35 @@ pub fn index(c: *Context) !void {
 pub fn getAllSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
 
-   // const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
-   // if (cached) |rows| {
-   //     if (rows.len > 0) {
-   //         const data = rows[0][9 .. rows[0].len - 2];
-   //         try c.request.respond(data, .{ .extra_headers = headers });
-   //         return;
-   //     }
-   // }
-
-    const all = try dynamo.getItemsOwnerDtProj(dynamo.SubmissionList, c.allocator, user.email, "SUBMISSION",
-        "pk, sk, severity, DATATYPE, #n, studentName, assignmentId, rubricId, simpleHash, classId, #owner, isStarred, #s, externalId",
-        "\"#n\":\"name\",\"#s\":\"status\"");
-    var count: usize = 0;
-    for (all) |s| {
-        if (!std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) count += 1;
-    }
-    const submissions = try c.allocator.alloc(dynamo.SubmissionList, count);
-    var i: usize = 0;
-    for (all) |s| {
-        if (!std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) {
-            submissions[i] = s;
-            i += 1;
+    const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
+    if (cached) |rows| {
+        if (rows.len > 0) {
+            const data = rows[0][9 .. rows[0].len - 2];
+            try c.request.respond(data, .{ .extra_headers = headers });
+            return;
         }
     }
-    const json_body = try std.json.Stringify.valueAlloc(c.allocator, submissions, .{});
+
+    const all = try dynamo.getItemsOwnerDtProjRaw(c.allocator, user.email, "SUBMISSION",
+        "pk, sk, severity, DATATYPE, #n, studentName, assignmentId, rubricId, simpleHash, classId, #owner, isStarred, #s, externalId",
+        "\"#n\":\"name\",\"#s\":\"status\"");
+
+    var total_len: usize = 2; // [ and ]
+    for (all) |item| {
+        if (!std.mem.containsAtLeast(u8, item, 1, "BACKUP")) total_len += item.len + 1; // +1 for comma
+    }
+    const json_body = try c.allocator.alloc(u8, total_len);
+    var pos: usize = 0;
+    json_body[pos] = '['; pos += 1;
+    var first = true;
+    for (all) |item| {
+        if (std.mem.containsAtLeast(u8, item, 1, "BACKUP")) continue;
+        if (!first) { json_body[pos] = ','; pos += 1; }
+        @memcpy(json_body[pos..][0..item.len], item);
+        pos += item.len;
+        first = false;
+    }
+    json_body[pos] = ']';
 
     sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('submissions', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
         std.debug.print("cache write failed: {}\n", .{err});
