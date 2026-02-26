@@ -974,6 +974,63 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
     return result;
 }
 
+ItemList get_items_owner_dt_proj(const char *user_id, const char *datatype,
+                                  const char *proj_expr, const char *extra_names) {
+    ItemList result = {0};
+    const char *table = getenv("DYNAMO_TABLE_NAME");
+    if (!table) {
+        fprintf(stderr, "DYNAMO_TABLE_NAME not defined\n");
+        return result;
+    }
+
+    char *last_key = NULL;
+    do {
+        Buf body = {0};
+        b_fmt(&body,
+              "{\"TableName\":\"%s\","
+              "\"IndexName\":\"OWNER-DATATYPE-index\","
+              "\"KeyConditionExpression\":\"#owner = :owner and DATATYPE = :datatype\","
+              "\"ProjectionExpression\":\"%s\","
+              "\"ExpressionAttributeNames\":{\"#owner\":\"OWNER\"",
+              table, proj_expr);
+        if (extra_names && extra_names[0]) {
+            b_str(&body, ",");
+            b_str(&body, extra_names);
+        }
+        b_fmt(&body,
+              "},"
+              "\"ExpressionAttributeValues\":{"
+              "\":owner\":{\"S\":\"%s\"},"
+              "\":datatype\":{\"S\":\"%s\"}"
+              "}",
+              user_id, datatype);
+        append_exclusive_start_key(&body, last_key);
+        free(last_key);
+        last_key = NULL;
+
+        char *resp = dynamo_request("DynamoDB_20120810.Query", body.b);
+        free(body.b);
+        if (!resp) {
+            item_list_free(&result);
+            return (ItemList){0};
+        }
+
+        ItemList page = parse_query_items(resp, &last_key);
+        free(resp);
+
+        if (page.count) {
+            result.items = realloc(result.items, (result.count + page.count) *
+                                                     sizeof(char *));
+            memcpy(result.items + result.count, page.items,
+                   page.count * sizeof(char *));
+            result.count += page.count;
+            free(page.items);
+        }
+    } while (last_key);
+
+    return result;
+}
+
 int http_post(const char *url, const char *payload) {
     CURL *curl = get_curl(&tl_http_curl);
     if (!curl)

@@ -46,12 +46,14 @@ pub fn getAllSubmissions(c: *Context) !void {
    //     }
    // }
 
-    const all = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
+    const all = try dynamo.getItemsOwnerDtProj(dynamo.SubmissionList, c.allocator, user.email, "SUBMISSION",
+        "pk, sk, severity, DATATYPE, #n, studentName, assignmentId, rubricId, simpleHash, classId, #owner, isStarred, #s, externalId",
+        "\"#n\":\"name\",\"#s\":\"status\"");
     var count: usize = 0;
     for (all) |s| {
         if (!std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) count += 1;
     }
-    const submissions = try c.allocator.alloc(dynamo.Submission, count);
+    const submissions = try c.allocator.alloc(dynamo.SubmissionList, count);
     var i: usize = 0;
     for (all) |s| {
         if (!std.mem.containsAtLeast(u8, s.sk, 1, "BACKUP")) {
@@ -67,6 +69,10 @@ pub fn getAllSubmissions(c: *Context) !void {
 
     try c.request.respond(json_body, .{ .extra_headers = headers });
 }
+
+
+
+
 
 pub fn getUnapprovedSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);

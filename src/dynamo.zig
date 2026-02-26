@@ -76,6 +76,41 @@ fn dupeItemList(allocator: std.mem.Allocator, raw: dynamo.ItemList) !ItemList {
     return .{ .items = items, .allocator = allocator };
 }
 
+pub const SubmissionList = struct {
+    pk: []const u8,
+    sk: []const u8,
+    severity: f64 = 0,
+    DATATYPE: []const u8 = "SUBMISSION",
+    name: []const u8,
+    studentName: []const u8,
+    assignmentId: []const u8,
+    rubricId: []const u8,
+    simpleHash: []const u8,
+    classId: []const u8,
+    OWNER: []const u8,
+    isStarred: bool = false,
+    status: []const u8,
+    externalId: []const u8,
+};
+
+pub fn getItemsOwnerDtProj(comptime T: type, allocator: std.mem.Allocator, user_id: []const u8, datatype: []const u8, proj_expr: []const u8, extra_names: []const u8) ![]T {
+    const cuid = try allocator.dupeZ(u8, user_id);
+    defer allocator.free(cuid);
+    const cdt = try allocator.dupeZ(u8, datatype);
+    defer allocator.free(cdt);
+    const cproj = try allocator.dupeZ(u8, proj_expr);
+    defer allocator.free(cproj);
+    const cnames = try allocator.dupeZ(u8, extra_names);
+    defer allocator.free(cnames);
+    var raw = dynamo.get_items_owner_dt_proj(cuid, cdt, cproj, cnames);
+    defer dynamo.item_list_free(&raw);
+    const result = try allocator.alloc(T, raw.count);
+    for (0..raw.count) |i| {
+        result[i] = try std.json.parseFromSliceLeaky(T, allocator, std.mem.span(raw.items[i]), .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
+    }
+    return result;
+}
+
 pub fn getItemsOwnerDt(comptime T: type, allocator: std.mem.Allocator, user_id: []const u8, datatype: []const u8) ![]T {
     const cuid = try allocator.dupeZ(u8, user_id);
     defer allocator.free(cuid);

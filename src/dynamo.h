@@ -62,6 +62,11 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
  */
 int save_item(const char *item_json, const char *owner);
 
+/* like get_items_owner_dt but with a ProjectionExpression; extra_names is a JSON
+   fragment of additional ExpressionAttributeNames entries (may be NULL or "") */
+ItemList get_items_owner_dt_proj(const char *user_id, const char *datatype,
+                                  const char *proj_expr, const char *extra_names);
+
 /* simple HTTP POST with JSON content-type; returns 0 on success, -1 on failure */
 int http_post(const char *url, const char *payload);
 
