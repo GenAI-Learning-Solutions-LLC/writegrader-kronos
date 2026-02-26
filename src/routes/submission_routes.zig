@@ -37,14 +37,14 @@ pub fn index(c: *Context) !void {
 pub fn getAllSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
 
-    const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
-    if (cached) |rows| {
-        if (rows.len > 0) {
-            const data = rows[0][9 .. rows[0].len - 2];
-            try c.request.respond(data, .{ .extra_headers = headers });
-            return;
-        }
-    }
+   // const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
+   // if (cached) |rows| {
+   //     if (rows.len > 0) {
+   //         const data = rows[0][9 .. rows[0].len - 2];
+   //         try c.request.respond(data, .{ .extra_headers = headers });
+   //         return;
+   //     }
+   // }
 
     const submissions = try dynamo.getItemsOwnerDt(dynamo.Submission, c.allocator, user.email, "SUBMISSION");
     const json_body = try std.json.Stringify.valueAlloc(c.allocator, submissions, .{});

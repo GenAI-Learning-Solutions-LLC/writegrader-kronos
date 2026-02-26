@@ -412,6 +412,24 @@ static size_t write_cb(void *ptr, size_t size, size_t nmemb, void *userdata) {
     return real;
 }
 
+/*
+ * Thread-local curl handles — one per service endpoint.
+ * curl_easy_reset() clears options but preserves the connection cache,
+ * so TCP/TLS connections are reused across calls on the same thread.
+ */
+static __thread CURL *tl_dynamo_curl = NULL;
+static __thread CURL *tl_lambda_curl = NULL;
+static __thread CURL *tl_http_curl   = NULL;
+
+static CURL *get_curl(CURL **handle) {
+    if (!*handle) {
+        *handle = curl_easy_init();
+    } else {
+        curl_easy_reset(*handle);
+    }
+    return *handle;
+}
+
 /* makes a DynamoDB API call; returns raw response body, caller frees */
 static char *dynamo_request(const char *target, const char *body) {
     const char *key_id = getenv("AWS_ACCESS_KEY_ID");
@@ -429,7 +447,7 @@ static char *dynamo_request(const char *target, const char *body) {
     snprintf(sigv4, sizeof(sigv4), "aws:amz:%s:dynamodb", region);
     snprintf(target_hdr, sizeof(target_hdr), "X-Amz-Target: %s", target);
 
-    CURL *curl = curl_easy_init();
+    CURL *curl = get_curl(&tl_dynamo_curl);
     if (!curl)
         return NULL;
 
@@ -450,7 +468,6 @@ static char *dynamo_request(const char *target, const char *body) {
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
         fprintf(stderr, "curl error: %s\n", curl_easy_strerror(res));
@@ -965,7 +982,7 @@ ItemList get_items_owner_pk(const char *prefix, const char *user_id,
  * Returns 0 on success, -1 on failure.
  */
 int http_post(const char *url, const char *payload) {
-    CURL *curl = curl_easy_init();
+    CURL *curl = get_curl(&tl_http_curl);
     if (!curl)
         return -1;
 
@@ -981,7 +998,6 @@ int http_post(const char *url, const char *payload) {
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(hdrs);
-    curl_easy_cleanup(curl);
     free(resp.data);
 
     return (res == CURLE_OK) ? 0 : -1;
@@ -1004,7 +1020,7 @@ int invoke_lambda(const char *function_name, const char *payload) {
     snprintf(userpwd, sizeof(userpwd), "%s:%s", key_id, secret);
     snprintf(sigv4, sizeof(sigv4), "aws:amz:%s:lambda", region);
 
-    CURL *curl = curl_easy_init();
+    CURL *curl = get_curl(&tl_lambda_curl);
     if (!curl)
         return -1;
 
@@ -1023,14 +1039,13 @@ int invoke_lambda(const char *function_name, const char *payload) {
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(hdrs);
-    curl_easy_cleanup(curl);
     free(resp.data);
 
     return (res == CURLE_OK) ? 0 : -1;
 }
 
 char *http_post_sync(const char *url, const char *payload) {
-    CURL *curl = curl_easy_init();
+    CURL *curl = get_curl(&tl_http_curl);
     if (!curl)
         return NULL;
 
@@ -1046,7 +1061,6 @@ char *http_post_sync(const char *url, const char *payload) {
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(hdrs);
-    curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
         free(resp.data);
@@ -1072,7 +1086,7 @@ char *invoke_lambda_sync(const char *function_name, const char *payload) {
     snprintf(userpwd, sizeof(userpwd), "%s:%s", key_id, secret);
     snprintf(sigv4, sizeof(sigv4), "aws:amz:%s:lambda", region);
 
-    CURL *curl = curl_easy_init();
+    CURL *curl = get_curl(&tl_lambda_curl);
     if (!curl)
         return NULL;
 
@@ -1090,7 +1104,6 @@ char *invoke_lambda_sync(const char *function_name, const char *payload) {
 
     CURLcode res = curl_easy_perform(curl);
     curl_slist_free_all(hdrs);
-    curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
         free(resp.data);
