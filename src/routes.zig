@@ -14,7 +14,7 @@ const sql = @import("sql.zig");
 pub const routes = &[_]server.Route{
     .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
         authMiddleware,
-    }, .callback = sub_routes.index },
+    }, .callback = sub_routes.getAssignmentSubmissions },
         .{ .path = "/submissions", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.getAllSubmissions },

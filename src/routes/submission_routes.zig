@@ -14,15 +14,37 @@ const headers = &[_]std.http.Header{
     .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
     .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
 };
-const IndexParams = struct {
+
+/// Builds a JSON array from pre-serialised JSON object strings.
+/// Returns a slice of exactly the right length — no trailing garbage bytes.
+pub fn buildJsonArray(allocator: std.mem.Allocator, items: []const []const u8) ![]const u8 {
+    var total_len: usize = 2; // '[' and ']'
+    for (items) |item| total_len += item.len + 1; // +1 reserved for comma
+    const buf = try allocator.alloc(u8, total_len);
+    var pos: usize = 0;
+    buf[pos] = '[';
+    pos += 1;
+    var first = true;
+    for (items) |item| {
+        if (!first) { buf[pos] = ','; pos += 1; }
+        @memcpy(buf[pos..][0..item.len], item);
+        pos += item.len;
+        first = false;
+    }
+    buf[pos] = ']';
+    return buf[0 .. pos + 1];
+}
+
+const SubmissionIndexParams = struct {
     cid: []const u8,
     aid: []const u8,
 };
+
 pub fn index(c: *Context) !void {
     const user = try dynamo.getUser(c);
 
     server.debugPrint("Here\n", .{});
-    const params = server.Parser.params(IndexParams, c) catch {
+    const params = server.Parser.params(SubmissionIndexParams, c) catch {
         try c.request.respond("<h1>nothing found</h1>", .{ .status = .ok });
         return;
     };
@@ -32,7 +54,46 @@ pub fn index(c: *Context) !void {
     try server.sendJson(c.allocator, c.request, submissions, .{ .extra_headers = headers });
 }
 
+pub fn getAssignmentSubmissions(c: *Context) !void {
+    const user = try dynamo.getUser(c);
 
+    const params = server.Parser.params(SubmissionIndexParams, c) catch {
+        try c.request.respond("", .{ .status = .bad_request });
+        return;
+    };
+    std.debug.print("stuff {s} {s}\n", .{ params.cid, params.cid });
+    const has_access = checkAssignmentAccess(c.allocator, user.email, params.cid, params.aid) catch false;
+    if (!has_access) {
+        try c.request.respond("", .{ .status = .forbidden });
+      return;
+    }
+
+    var list = try dynamo.getItemsDatatypePk(c.allocator, "SUBMISSION", params.aid);
+    std.debug.print("list {d}\n", .{list.items.len});
+
+    defer list.deinit();
+
+    var total_len: usize = 2;
+    for (list.items) |item| total_len += item.len + 1;
+    const json_body = try c.allocator.alloc(u8, total_len);
+    var pos: usize = 0;
+    json_body[pos] = '[';
+    pos += 1;
+    var first = true;
+    for (list.items) |item| {
+        if (!first) {
+            json_body[pos] = ',';
+            pos += 1;
+        }
+        @memcpy(json_body[pos..][0..item.len], item);
+        pos += item.len;
+        first = false;
+    }
+    json_body[pos] = ']';
+    std.debug.print("{s}\n", .{json_body[0 .. pos + 1]});
+
+    try c.request.respond(json_body[0 .. pos + 1], .{ .extra_headers = headers });
+}
 
 pub fn getAllSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
@@ -46,9 +107,7 @@ pub fn getAllSubmissions(c: *Context) !void {
         }
     }
 
-    const all = try dynamo.getItemsOwnerDtProjRaw(c.allocator, user.email, "SUBMISSION",
-        "pk, sk, severity, DATATYPE, #n, studentName, assignmentId, rubricId, simpleHash, classId, #owner, isStarred, #s, externalId",
-        "\"#n\":\"name\",\"#s\":\"status\"");
+    const all = try dynamo.getItemsOwnerDtProjRaw(c.allocator, user.email, "SUBMISSION", "pk, sk, severity, DATATYPE, #n, studentName, assignmentId, rubricId, simpleHash, classId, #owner, isStarred, #s, externalId", "\"#n\":\"name\",\"#s\":\"status\"");
 
     var total_len: usize = 2; // [ and ]
     for (all) |item| {
@@ -56,11 +115,15 @@ pub fn getAllSubmissions(c: *Context) !void {
     }
     const json_body = try c.allocator.alloc(u8, total_len);
     var pos: usize = 0;
-    json_body[pos] = '['; pos += 1;
+    json_body[pos] = '[';
+    pos += 1;
     var first = true;
     for (all) |item| {
         if (std.mem.containsAtLeast(u8, item, 1, "BACKUP")) continue;
-        if (!first) { json_body[pos] = ','; pos += 1; }
+        if (!first) {
+            json_body[pos] = ',';
+            pos += 1;
+        }
         @memcpy(json_body[pos..][0..item.len], item);
         pos += item.len;
         first = false;
@@ -73,10 +136,6 @@ pub fn getAllSubmissions(c: *Context) !void {
 
     try c.request.respond(json_body, .{ .extra_headers = headers });
 }
-
-
-
-
 
 pub fn getUnapprovedSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
@@ -112,8 +171,6 @@ pub fn getUnapprovedSubmissions(c: *Context) !void {
     try c.request.respond(json_body, .{ .extra_headers = headers });
 }
 
-
-
 //todo check ownership using shared access
 const SubmissionParams = struct {
     cid: []const u8,
@@ -135,7 +192,6 @@ pub fn get_submission(c: *Context) !void {
             try server.sendJson(c.allocator, c.request, s, .{ .extra_headers = headers });
             return;
         }
-
     }
     try server.sendJson(c.allocator, c.request, null, .{ .extra_headers = headers });
 }
@@ -224,8 +280,14 @@ pub fn saveSubmission(c: *Context) !void {
                 }
             }
 
-            const class_id = if (obj.get("classId")) |v| switch (v) { .string => |s| s, else => "" } else "";
-            const assignment_id = if (obj.get("assignmentId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+            const class_id = if (obj.get("classId")) |v| switch (v) {
+                .string => |s| s,
+                else => "",
+            } else "";
+            const assignment_id = if (obj.get("assignmentId")) |v| switch (v) {
+                .string => |s| s,
+                else => "",
+            } else "";
 
             const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
             if (!has_access) {
