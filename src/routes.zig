@@ -23,7 +23,7 @@ pub const routes = &[_]server.Route{
         authMiddleware,
     }, .callback = sub_routes.get_submission },
 
-    .{ .path = "/submissions/:sid", .method = .PUT, .middleware = &[_]Callback{
+    .{ .path = "/submissions", .method = .PUT, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.saveSubmission },
 
