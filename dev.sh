@@ -1,6 +1,6 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 set -m
-
+source .env
 start_server() {
     zig build run &
     SERVER_PID=$!
