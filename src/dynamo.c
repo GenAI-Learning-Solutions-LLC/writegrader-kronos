@@ -819,7 +819,11 @@ int save_item_plain(const char *plain_json, const char *owner) {
     if (!wire) return -1;
 
     Buf body = {0};
-    b_fmt(&body, "{\"TableName\":\"%s\",\"Item\":%s}", table, wire);
+    b_str(&body, "{\"TableName\":\"");
+    b_str(&body, table);
+    b_str(&body, "\",\"Item\":");
+    b_str(&body, wire);
+    b_chr(&body, '}');
     free(wire);
 
     char *resp = dynamo_request("DynamoDB_20120810.PutItem", body.b);
@@ -1310,7 +1314,11 @@ int save_item(const char *item_json, const char *owner) {
     }
 
     Buf body = {0};
-    b_fmt(&body, "{\"TableName\":\"%s\",\"Item\":%s}", table, item_json);
+    b_str(&body, "{\"TableName\":\"");
+    b_str(&body, table);
+    b_str(&body, "\",\"Item\":");
+    b_str(&body, item_json);
+    b_chr(&body, '}');
 
     char *resp = dynamo_request("DynamoDB_20120810.PutItem", body.b);
     free(body.b);
