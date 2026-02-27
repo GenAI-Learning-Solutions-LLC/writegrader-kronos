@@ -249,6 +249,130 @@ fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u8, c
     return false;
 }
 
+fn stampAndNormalise(allocator: std.mem.Allocator, obj: *std.json.ObjectMap) !void {
+    var ts_buf: [32]u8 = undefined;
+    dynamo.c.iso_timestamp(&ts_buf, ts_buf.len);
+    const ts = try allocator.dupe(u8, std.mem.sliceTo(&ts_buf, 0));
+    try obj.put("updatedAt", .{ .string = ts });
+
+    if (obj.get("pk")) |pk_val| {
+        switch (pk_val) {
+            .string => |pk| {
+                const stem = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
+                try obj.put("assignmentId", .{ .string = stem });
+            },
+            else => {},
+        }
+    }
+}
+
+fn isSubmissionNew(allocator: std.mem.Allocator, user_email: []const u8, pk_str: ?[]const u8, sk_str: ?[]const u8) !bool {
+    const sk = sk_str orelse return true;
+
+    // 1. Check submissions cache (ignore staleness)
+    const cached = sql.getAll(allocator,
+        "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? LIMIT 1",
+        .{user_email}) catch null;
+    if (cached) |rows| {
+        if (rows.len > 0 and rows[0].len > 11) {
+            const data = rows[0][9 .. rows[0].len - 2];
+            if (std.mem.containsAtLeast(u8, data, 1, sk)) {
+                std.debug.print("submission {s} found in cache, is existing\n", .{sk});
+                return false;
+            }
+        }
+    }
+
+    // 2. Not in cache — check DynamoDB
+    const pk = pk_str orelse return true;
+    const pk_stem = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
+    const sk_stem = if (std.mem.indexOf(u8, sk, "#")) |idx| sk[idx + 1 ..] else sk;
+    const cpx = try std.heap.c_allocator.dupeZ(u8, "SUBMISSION");
+    defer std.heap.c_allocator.free(cpx);
+    const cpk = try std.heap.c_allocator.dupeZ(u8, pk_stem);
+    defer std.heap.c_allocator.free(cpk);
+    const csk = try std.heap.c_allocator.dupeZ(u8, sk_stem);
+    defer std.heap.c_allocator.free(csk);
+    const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk);
+    if (result != null) {
+        std.c.free(result);
+        std.debug.print("submission {s} found in dynamo, is existing\n", .{sk});
+        return false;
+    }
+
+    std.debug.print("submission {s} not found in cache or dynamo, is new\n", .{sk});
+    return true;
+}
+
+fn hasAvailableCredits(user: dynamo.User) bool {
+    const sub = user.subscriptionInfo;
+    const available = (sub.credits orelse 0) - sub.creditsUsed + (sub.bonus orelse 0);
+    std.debug.print("credit check: credits={d} creditsUsed={d} bonus={d} available={d}\n", .{
+        sub.credits orelse 0, sub.creditsUsed, sub.bonus orelse 0, available,
+    });
+    return available > 0;
+}
+
+
+pub fn approveSubmission(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+
+    const content_length = c.request.head.content_length orelse {
+        try c.request.respond("", .{ .status = .bad_request });
+        return;
+    };
+    const read_buf = try c.allocator.alloc(u8, 4096);
+    const reader = try c.request.readerExpectContinue(read_buf);
+    const body = try reader.readAlloc(c.allocator, content_length);
+
+    var parsed = try std.json.parseFromSliceLeaky(std.json.Value, c.allocator, body, .{ .allocate = .alloc_always });
+    const obj = switch (parsed) {
+        .object => |*o| o,
+        else => {
+            try c.request.respond("", .{ .status = .bad_request });
+            return;
+        },
+    };
+
+    try stampAndNormalise(c.allocator, obj);
+
+    const class_id = if (obj.get("classId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+    const assignment_id = if (obj.get("assignmentId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+    const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
+    if (!has_access) {
+        try c.request.respond("", .{ .status = .forbidden });
+        return;
+    }
+
+    const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) { .string => |s| s, else => null } else null;
+    const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) { .string => |s| s, else => null } else null;
+    const is_new = try isSubmissionNew(c.allocator, user.email, pk_str, sk_str);
+
+    if (is_new and (if (user.group) |g| g.len == 0 else true) and !user.isAdmin) {
+        if (!hasAvailableCredits(user)) {
+            try c.request.respond("{\"error\":\"Upload credits are below 0\"}", .{ .status = .forbidden, .extra_headers = headers });
+            return;
+        }
+    }
+
+    const modified_body = try std.json.Stringify.valueAlloc(c.allocator, parsed, .{});
+    dynamo.saveItem(c.allocator, modified_body, null) catch {
+        try c.request.respond("", .{ .status = .internal_server_error });
+        return;
+    };
+
+    if (is_new) {
+        std.debug.print("new submission for {s}, calling updateCreditsUsed\n", .{user.email});
+        dynamo.updateCreditsUsed(c.allocator, user.email) catch |err| {
+            std.debug.print("updateCreditsUsed failed: {}\n", .{err});
+        };
+    }
+
+    invalidateSubmissionCache(user.email);
+    try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
+}
+
+
 pub fn saveSubmission(c: *Context) !void {
     const user = try dynamo.getUser(c);
 
@@ -261,101 +385,47 @@ pub fn saveSubmission(c: *Context) !void {
     const body = try reader.readAlloc(c.allocator, content_length);
 
     var parsed = try std.json.parseFromSliceLeaky(std.json.Value, c.allocator, body, .{ .allocate = .alloc_always });
-    switch (parsed) {
-        .object => |*obj| {
-            var ts_buf: [32]u8 = undefined;
-            dynamo.c.iso_timestamp(&ts_buf, ts_buf.len);
-            const ts = try c.allocator.dupe(u8, std.mem.sliceTo(&ts_buf, 0));
-            try obj.put("updatedAt", .{ .string = ts });
-
-            if (obj.get("pk")) |pk_val| {
-                switch (pk_val) {
-                    .string => |pk| {
-                        const stem = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
-                        try obj.put("assignmentId", .{ .string = stem });
-                    },
-                    else => {},
-                }
-            }
-
-            const class_id = if (obj.get("classId")) |v| switch (v) {
-                .string => |s| s,
-                else => "",
-            } else "";
-            const assignment_id = if (obj.get("assignmentId")) |v| switch (v) {
-                .string => |s| s,
-                else => "",
-            } else "";
-
-            const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
-            if (!has_access) {
-                try c.request.respond("", .{ .status = .forbidden });
-                return;
-            }
-            
-            const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) { .string => |s| s, else => null } else null;
-            const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) { .string => |s| s, else => null } else null;
-
-            var is_new = true;
-            if (sk_str) |sk| {
-                // 1. Check submissions cache (ignore staleness)
-                const cached = sql.getAll(c.allocator,
-                    "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? LIMIT 1",
-                    .{user.email}) catch null;
-                var found_in_cache = false;
-                if (cached) |rows| {
-                    if (rows.len > 0 and rows[0].len > 11) {
-                        const data = rows[0][9 .. rows[0].len - 2];
-                        if (std.mem.containsAtLeast(u8, data, 1, sk)) {
-                            found_in_cache = true;
-                            is_new = false;
-                            std.debug.print("submission {s} found in cache, skipping credit update\n", .{sk});
-                        }
-                    }
-                }
-
-                // 2. If not in cache, check DynamoDB
-                if (!found_in_cache) {
-                    if (pk_str) |pk| {
-                        const pk_stem = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
-                        const sk_stem = if (std.mem.indexOf(u8, sk, "#")) |idx| sk[idx + 1 ..] else sk;
-                        const cpx = try std.heap.c_allocator.dupeZ(u8, "SUBMISSION");
-                        defer std.heap.c_allocator.free(cpx);
-                        const cpk = try std.heap.c_allocator.dupeZ(u8, pk_stem);
-                        defer std.heap.c_allocator.free(cpk);
-                        const csk = try std.heap.c_allocator.dupeZ(u8, sk_stem);
-                        defer std.heap.c_allocator.free(csk);
-                        const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk);
-                        if (result != null) {
-                            std.c.free(result);
-                            is_new = false;
-                            std.debug.print("submission {s} found in dynamo, skipping credit update\n", .{sk});
-                        } else {
-                            std.debug.print("submission {s} not found in dynamo or cache, is new\n", .{sk});
-                        }
-                    }
-                }
-            }
-
-            if (is_new) {
-                std.debug.print("new submission for {s}, calling updateCreditsUsed\n", .{user.email});
-                dynamo.updateCreditsUsed(c.allocator, user.email) catch |err| {
-                    std.debug.print("updateCreditsUsed failed: {}\n", .{err});
-                };
-            }
-        },
+    const obj = switch (parsed) {
+        .object => |*o| o,
         else => {
             try c.request.respond("", .{ .status = .bad_request });
             return;
         },
+    };
+
+    try stampAndNormalise(c.allocator, obj);
+
+    const class_id = if (obj.get("classId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+    const assignment_id = if (obj.get("assignmentId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+    const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
+    if (!has_access) {
+        try c.request.respond("", .{ .status = .forbidden });
+        return;
+    }
+
+    const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) { .string => |s| s, else => null } else null;
+    const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) { .string => |s| s, else => null } else null;
+    const is_new = try isSubmissionNew(c.allocator, user.email, pk_str, sk_str);
+
+    if (is_new and (if (user.group) |g| g.len == 0 else true) and !user.isAdmin) {
+        if (!hasAvailableCredits(user)) {
+            try c.request.respond("{\"error\":\"Upload credits are below 0\"}", .{ .status = .forbidden, .extra_headers = headers });
+            return;
+        }
     }
 
     const modified_body = try std.json.Stringify.valueAlloc(c.allocator, parsed, .{});
-
     dynamo.saveItem(c.allocator, modified_body, null) catch {
         try c.request.respond("", .{ .status = .internal_server_error });
         return;
     };
+
+    if (is_new) {
+        std.debug.print("new submission for {s}, calling updateCreditsUsed\n", .{user.email});
+        dynamo.updateCreditsUsed(c.allocator, user.email) catch |err| {
+            std.debug.print("updateCreditsUsed failed: {}\n", .{err});
+        };
+    }
 
     invalidateSubmissionCache(user.email);
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
