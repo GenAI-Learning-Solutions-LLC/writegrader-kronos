@@ -8,12 +8,6 @@ const dynamo = @import("../dynamo.zig");
 const auth = @import("../auth.zig");
 const sql = @import("../sql.zig");
 
-const headers = &[_]std.http.Header{
-    .{ .name = "Content-Type", .value = "application/json" },
-    .{ .name = "Connection", .value = "close" },
-    .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
-    .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
-};
 
 /// Builds a JSON array from pre-serialised JSON object strings.
 /// Returns a slice of exactly the right length — no trailing garbage bytes.
@@ -42,6 +36,7 @@ const SubmissionIndexParams = struct {
 
 pub fn index(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     server.debugPrint("Here\n", .{});
     const params = server.Parser.params(SubmissionIndexParams, c) catch {
@@ -56,6 +51,7 @@ pub fn index(c: *Context) !void {
 
 pub fn getAssignmentSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const params = server.Parser.params(SubmissionIndexParams, c) catch {
         try c.request.respond("", .{ .status = .bad_request });
@@ -97,6 +93,7 @@ pub fn getAssignmentSubmissions(c: *Context) !void {
 
 pub fn getAllSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
     if (cached) |rows| {
@@ -139,6 +136,7 @@ pub fn getAllSubmissions(c: *Context) !void {
 
 pub fn getUnapprovedSubmissions(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions_unapproved' AND name = ? AND updated_at > datetime('now', '-3 minutes') LIMIT 1", .{user.email}) catch null;
     if (cached) |rows| {
@@ -180,6 +178,7 @@ const SubmissionParams = struct {
 
 pub fn get_submission(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
     server.debugPrint("Here\n", .{});
     const params = server.Parser.params(SubmissionParams, c) catch {
         try c.request.respond("", .{ .status = .bad_request });
@@ -316,6 +315,7 @@ fn hasAvailableCredits(user: dynamo.User) bool {
 
 pub fn approveSubmission(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });
@@ -375,6 +375,7 @@ pub fn approveSubmission(c: *Context) !void {
 
 pub fn saveSubmission(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });

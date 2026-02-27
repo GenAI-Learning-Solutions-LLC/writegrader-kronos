@@ -150,6 +150,31 @@ pub fn static(c: *Context) !void {
     request.respond(body, .{ .status = .ok, .keep_alive = false }) catch return ServerError.Server;
 }
 
+pub fn isAllowedOrigin(origin: []const u8) bool {
+    if (std.mem.eql(u8, origin, "http://localhost:5173")) return true;
+    if (std.mem.eql(u8, origin, "https://localhost:5173")) return true;
+    if (std.mem.eql(u8, origin, "https://writegrader.com")) return true;
+    if (std.mem.endsWith(u8, origin, ".writegrader.com")) return true;
+    return false;
+}
+
+pub fn makeHeaders(allocator: std.mem.Allocator, request: *std.http.Server.Request) ![]const std.http.Header {
+    var origin: []const u8 = "";
+    var it = request.iterateHeaders();
+    while (it.next()) |h| {
+        if (std.ascii.eqlIgnoreCase(h.name, "origin")) {
+            if (isAllowedOrigin(h.value)) origin = h.value;
+            break;
+        }
+    }
+    const h = try allocator.alloc(std.http.Header, 4);
+    h[0] = .{ .name = "Content-Type", .value = "application/json" };
+    h[1] = .{ .name = "Connection", .value = "close" };
+    h[2] = .{ .name = "Access-Control-Allow-Origin", .value = origin };
+    h[3] = .{ .name = "Access-Control-Allow-Credentials", .value = "true" };
+    return h;
+}
+
 ///this route returns a 404 error and is called when no other route matched
 const notFound = Route{ .callback = four0four };
 
@@ -173,15 +198,23 @@ pub const Router = struct {
         for (self.routes.items) |*r| {
             const query = std.mem.indexOf(u8, request.head.target, "?") orelse request.head.target.len;
             if (request.head.method == .OPTIONS) {
-                const headers = &[_]std.http.Header{
+                var origin: []const u8 = "";
+                var hit = request.iterateHeaders();
+                while (hit.next()) |h| {
+                    if (std.ascii.eqlIgnoreCase(h.name, "origin")) {
+                        if (isAllowedOrigin(h.value)) origin = h.value;
+                        break;
+                    }
+                }
+                const opt_headers = [_]std.http.Header{
                     .{ .name = "Content-Type", .value = "application/json" },
                     .{ .name = "Connection", .value = "close" },
-                    .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
+                    .{ .name = "Access-Control-Allow-Origin", .value = origin },
                     .{ .name = "Access-Control-Allow-Methods", .value = "GET, POST, PUT, DELETE, OPTIONS" },
                     .{ .name = "Access-Control-Allow-Headers", .value = "Content-Type" },
                     .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
                 };
-                try request.respond("", .{ .status = .ok, .keep_alive = false, .extra_headers = headers });
+                try request.respond("", .{ .status = .ok, .keep_alive = false, .extra_headers = &opt_headers });
                 return;
             }
             if (r.match(request.head.target[0..query], request.head.method)) {
