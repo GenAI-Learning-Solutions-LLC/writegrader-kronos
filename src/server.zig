@@ -213,6 +213,7 @@ pub const Router = struct {
                     .{ .name = "Access-Control-Allow-Methods", .value = "GET, POST, PUT, DELETE, OPTIONS" },
                     .{ .name = "Access-Control-Allow-Headers", .value = "Content-Type" },
                     .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
+                    .{ .name = "Access-Control-Max-Age", .value = "86400" },
                 };
                 try request.respond("", .{ .status = .ok, .keep_alive = false, .extra_headers = &opt_headers });
                 return;
