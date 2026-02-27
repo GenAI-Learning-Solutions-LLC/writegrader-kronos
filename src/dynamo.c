@@ -1335,3 +1335,81 @@ int save_item(const char *item_json, const char *owner) {
     free(resp);
     return 0;
 }
+
+int update_credits_used(const char *email) {
+    const char *table = getenv("DYNAMO_TABLE_NAME");
+    if (!table) {
+        fprintf(stderr, "DYNAMO_TABLE_NAME not defined\n");
+        return -1;
+    }
+
+    char *user = get_item_pk_sk("USER", email, email);
+    if (!user) {
+        fprintf(stderr, "update_credits_used: user not found for %s\n", email);
+        return -1;
+    }
+
+    char *sub_raw = json_get_raw(user, "subscriptionInfo");
+    free(user);
+    if (!sub_raw) {
+        fprintf(stderr, "update_credits_used: no subscriptionInfo for %s\n", email);
+        return -1;
+    }
+
+    char *cu_raw = json_get_raw(sub_raw, "creditsUsed");
+    char *c_raw  = json_get_raw(sub_raw, "credits");
+    char *b_raw  = json_get_raw(sub_raw, "bonus");
+    free(sub_raw);
+
+    double credits_used = cu_raw ? strtod(cu_raw, NULL) : 0.0;
+    double credits      = c_raw  ? strtod(c_raw,  NULL) : 0.0;
+    double bonus        = b_raw  ? strtod(b_raw,  NULL) : 0.0;
+    free(cu_raw);
+    free(c_raw);
+    free(b_raw);
+
+    char pk_val[512];
+    snprintf(pk_val, sizeof(pk_val), "USER#%s", email);
+
+    Buf body = {0};
+    b_fmt(&body,
+          "{\"TableName\":\"%s\","
+          "\"Key\":{\"pk\":{\"S\":\"%s\"},\"sk\":{\"S\":\"%s\"}},",
+          table, pk_val, pk_val);
+
+    if (credits_used >= credits && bonus > 0) {
+        b_str(&body,
+              "\"UpdateExpression\":\"SET #sub.#tu = if_not_exists(#sub.#tu, :zero) + :one,"
+              " #sub.#bonus = #sub.#bonus - :one,"
+              " #sub.#bu = if_not_exists(#sub.#bu, :zero) + :one\","
+              "\"ExpressionAttributeNames\":{"
+              "\"#sub\":\"subscriptionInfo\","
+              "\"#tu\":\"totalUsed\","
+              "\"#bonus\":\"bonus\","
+              "\"#bu\":\"bonusUsed\""
+              "},"
+              "\"ExpressionAttributeValues\":{"
+              "\":one\":{\"N\":\"1\"},"
+              "\":zero\":{\"N\":\"0\"}"
+              "}}");
+    } else {
+        b_str(&body,
+              "\"UpdateExpression\":\"SET #sub.#tu = if_not_exists(#sub.#tu, :zero) + :one,"
+              " #sub.#cu = if_not_exists(#sub.#cu, :zero) + :one\","
+              "\"ExpressionAttributeNames\":{"
+              "\"#sub\":\"subscriptionInfo\","
+              "\"#tu\":\"totalUsed\","
+              "\"#cu\":\"creditsUsed\""
+              "},"
+              "\"ExpressionAttributeValues\":{"
+              "\":one\":{\"N\":\"1\"},"
+              "\":zero\":{\"N\":\"0\"}"
+              "}}");
+    }
+
+    char *resp = dynamo_request("DynamoDB_20120810.UpdateItem", body.b);
+    free(body.b);
+    if (!resp) return -1;
+    free(resp);
+    return 0;
+}

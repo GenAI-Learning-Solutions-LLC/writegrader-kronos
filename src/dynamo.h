@@ -85,4 +85,12 @@ char *http_post_sync(const char *url, const char *payload);
 /* synchronous Lambda invocation (InvocationType: RequestResponse); returns heap-allocated response body, caller frees. NULL on failure */
 char *invoke_lambda_sync(const char *function_name, const char *payload);
 
+/*
+ * Increments credit usage for the user identified by email.
+ * If creditsUsed >= credits and bonus > 0, uses bonus credits instead.
+ * Always increments totalUsed.
+ * Returns 0 on success, -1 on failure.
+ */
+int update_credits_used(const char *email);
+
 #endif /* DYNAMO_H */

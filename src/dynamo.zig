@@ -170,6 +170,13 @@ pub fn getItemsOwnerPk(comptime T: type, allocator: std.mem.Allocator, prefix: [
     return result;
 }
 
+pub fn updateCreditsUsed(allocator: std.mem.Allocator, email: []const u8) !void {
+    const cemail = try allocator.dupeZ(u8, email);
+    defer allocator.free(cemail);
+    const rc = dynamo.update_credits_used(cemail);
+    if (rc != 0) return error.DynamoError;
+}
+
 pub fn saveItem(allocator: std.mem.Allocator, item_json: []const u8, owner: ?[]const u8) !void {
     const cjson = try allocator.dupeZ(u8, item_json);
     defer allocator.free(cjson);
