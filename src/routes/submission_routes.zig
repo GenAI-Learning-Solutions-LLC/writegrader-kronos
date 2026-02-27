@@ -293,19 +293,55 @@ pub fn saveSubmission(c: *Context) !void {
                 return;
             }
             
-            //todo make checking more robust
-            const ca: ?[]const u8 = if (obj.get("createdAt")) |v| switch (v) { .string => |s| s, else => null } else null;
-            const ua: ?[]const u8 = if (obj.get("updatedAt")) |v| switch (v) { .string => |s| s, else => null } else null;
+            const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) { .string => |s| s, else => null } else null;
+            const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) { .string => |s| s, else => null } else null;
 
+            var is_new = true;
+            if (sk_str) |sk| {
+                // 1. Check submissions cache (ignore staleness)
+                const cached = sql.getAll(c.allocator,
+                    "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? LIMIT 1",
+                    .{user.email}) catch null;
+                var found_in_cache = false;
+                if (cached) |rows| {
+                    if (rows.len > 0 and rows[0].len > 11) {
+                        const data = rows[0][9 .. rows[0].len - 2];
+                        if (std.mem.containsAtLeast(u8, data, 1, sk)) {
+                            found_in_cache = true;
+                            is_new = false;
+                            std.debug.print("submission {s} found in cache, skipping credit update\n", .{sk});
+                        }
+                    }
+                }
 
-            const is_new = ca == null or (ua != null and std.mem.eql(u8, ca.?, ua.?));
+                // 2. If not in cache, check DynamoDB
+                if (!found_in_cache) {
+                    if (pk_str) |pk| {
+                        const pk_stem = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
+                        const sk_stem = if (std.mem.indexOf(u8, sk, "#")) |idx| sk[idx + 1 ..] else sk;
+                        const cpx = try std.heap.c_allocator.dupeZ(u8, "SUBMISSION");
+                        defer std.heap.c_allocator.free(cpx);
+                        const cpk = try std.heap.c_allocator.dupeZ(u8, pk_stem);
+                        defer std.heap.c_allocator.free(cpk);
+                        const csk = try std.heap.c_allocator.dupeZ(u8, sk_stem);
+                        defer std.heap.c_allocator.free(csk);
+                        const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk);
+                        if (result != null) {
+                            std.c.free(result);
+                            is_new = false;
+                            std.debug.print("submission {s} found in dynamo, skipping credit update\n", .{sk});
+                        } else {
+                            std.debug.print("submission {s} not found in dynamo or cache, is new\n", .{sk});
+                        }
+                    }
+                }
+            }
+
             if (is_new) {
                 std.debug.print("new submission for {s}, calling updateCreditsUsed\n", .{user.email});
                 dynamo.updateCreditsUsed(c.allocator, user.email) catch |err| {
                     std.debug.print("updateCreditsUsed failed: {}\n", .{err});
                 };
-            } else {
-                std.debug.print("existing submission for {s}, skipping credit update\n", .{user.email});
             }
         },
         else => {
