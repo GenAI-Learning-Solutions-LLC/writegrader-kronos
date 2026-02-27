@@ -1368,6 +1368,9 @@ int update_credits_used(const char *email) {
     free(c_raw);
     free(b_raw);
 
+    fprintf(stderr, "update_credits_used: email=%s creditsUsed=%.0f credits=%.0f bonus=%.0f\n",
+            email, credits_used, credits, bonus);
+
     char pk_val[512];
     snprintf(pk_val, sizeof(pk_val), "USER#%s", email);
 
@@ -1378,6 +1381,8 @@ int update_credits_used(const char *email) {
           table, pk_val, pk_val);
 
     if (credits_used >= credits && bonus > 0) {
+        fprintf(stderr, "update_credits_used: using bonus credits (creditsUsed=%.0f >= credits=%.0f, bonus=%.0f)\n",
+                credits_used, credits, bonus);
         b_str(&body,
               "\"UpdateExpression\":\"SET #sub.#tu = if_not_exists(#sub.#tu, :zero) + :one,"
               " #sub.#bonus = #sub.#bonus - :one,"
@@ -1393,6 +1398,8 @@ int update_credits_used(const char *email) {
               "\":zero\":{\"N\":\"0\"}"
               "}}");
     } else {
+        fprintf(stderr, "update_credits_used: using standard credits (creditsUsed=%.0f credits=%.0f bonus=%.0f)\n",
+                credits_used, credits, bonus);
         b_str(&body,
               "\"UpdateExpression\":\"SET #sub.#tu = if_not_exists(#sub.#tu, :zero) + :one,"
               " #sub.#cu = if_not_exists(#sub.#cu, :zero) + :one\","
@@ -1409,7 +1416,11 @@ int update_credits_used(const char *email) {
 
     char *resp = dynamo_request("DynamoDB_20120810.UpdateItem", body.b);
     free(body.b);
-    if (!resp) return -1;
+    if (!resp) {
+        fprintf(stderr, "update_credits_used: UpdateItem request failed\n");
+        return -1;
+    }
+    fprintf(stderr, "update_credits_used: done, response=%s\n", resp);
     free(resp);
     return 0;
 }

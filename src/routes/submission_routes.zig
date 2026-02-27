@@ -256,13 +256,11 @@ pub fn saveSubmission(c: *Context) !void {
         try c.request.respond("", .{ .status = .bad_request });
         return;
     };
-
     const read_buf = try c.allocator.alloc(u8, 4096);
     const reader = try c.request.readerExpectContinue(read_buf);
     const body = try reader.readAlloc(c.allocator, content_length);
 
     var parsed = try std.json.parseFromSliceLeaky(std.json.Value, c.allocator, body, .{ .allocate = .alloc_always });
-
     switch (parsed) {
         .object => |*obj| {
             var ts_buf: [32]u8 = undefined;
@@ -293,6 +291,21 @@ pub fn saveSubmission(c: *Context) !void {
             if (!has_access) {
                 try c.request.respond("", .{ .status = .forbidden });
                 return;
+            }
+            
+            //todo make checking more robust
+            const ca: ?[]const u8 = if (obj.get("createdAt")) |v| switch (v) { .string => |s| s, else => null } else null;
+            const ua: ?[]const u8 = if (obj.get("updatedAt")) |v| switch (v) { .string => |s| s, else => null } else null;
+
+
+            const is_new = ca == null or (ua != null and std.mem.eql(u8, ca.?, ua.?));
+            if (is_new) {
+                std.debug.print("new submission for {s}, calling updateCreditsUsed\n", .{user.email});
+                dynamo.updateCreditsUsed(c.allocator, user.email) catch |err| {
+                    std.debug.print("updateCreditsUsed failed: {}\n", .{err});
+                };
+            } else {
+                std.debug.print("existing submission for {s}, skipping credit update\n", .{user.email});
             }
         },
         else => {
