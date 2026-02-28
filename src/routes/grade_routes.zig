@@ -5,12 +5,6 @@ const Context = server.Context;
 const dynamo = @import("../dynamo.zig");
 const sub_routes = @import("submission_routes.zig");
 
-const headers = &[_]std.http.Header{
-    .{ .name = "Content-Type", .value = "application/json" },
-    .{ .name = "Connection", .value = "close" },
-    .{ .name = "Access-Control-Allow-Origin", .value = "http://localhost:5173" },
-    .{ .name = "Access-Control-Allow-Credentials", .value = "true" },
-};
 
 const GradeBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
@@ -18,6 +12,7 @@ const GradeBodyPartial = struct {
 
 pub fn grade(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });
@@ -76,6 +71,7 @@ const GradeCritBodyPartial = struct {
 pub fn gradeCriterion(c: *Context) !void {
     const user = try dynamo.getUser(c);
     _ = user;
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });
@@ -129,6 +125,7 @@ pub fn gradeCriterion(c: *Context) !void {
 
 pub fn gradeCriterionAsync(c: *Context) !void {
     const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
     const content_length = c.request.head.content_length orelse {
         try c.request.respond("", .{ .status = .bad_request });
