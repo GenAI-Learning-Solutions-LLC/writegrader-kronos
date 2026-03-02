@@ -13,18 +13,26 @@ const assignment_routes = @import("routes/assignment_routes.zig");
 const grade_routes = @import("routes/grade_routes.zig");
 const sql = @import("sql.zig");
 pub const routes = &[_]server.Route{
-       .{ .path = "/courses/:cid/assignments/:aid", .middleware = &[_]Callback{
+    .{ .path = "/courses/:cid/assignments/:aid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAssignment },
+
     .{ .path = "/classes/:cid/assignments/:aid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAssignment },
 
-
     .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.getAssignmentSubmissions },
-        .{ .path = "/submissions", .middleware = &[_]Callback{
+
+    .{ .path = "/assignments", .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = assignment_routes.getAllAssignments},
+
+
+
+
+    .{ .path = "/submissions", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.getAllSubmissions },
 
@@ -44,12 +52,8 @@ pub const routes = &[_]server.Route{
         authMiddleware,
     }, .callback = grade_routes.gradeCriterion },
 
-
     .{ .path = "/static/*", .callback = server.static },
-
 };
-
-
 
 pub fn index(c: *Context) !void {
     const user = try dynamo.getUser(c);
@@ -57,7 +61,6 @@ pub fn index(c: *Context) !void {
     defer c.allocator.free(body);
     try c.request.respond(body, .{ .status = .ok, .keep_alive = false });
 }
-
 
 fn authMiddleware(c: *Context) !void {
     const cookies = try server.Parser.parseCookies(c.allocator, c.request);

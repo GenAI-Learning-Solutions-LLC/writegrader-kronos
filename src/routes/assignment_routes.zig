@@ -10,45 +10,6 @@ const sql = @import("../sql.zig");
 const utils = @import("../utils.zig");
 const types = @import("../schema.zig");
 
-// router.get("/:pk/:sk", authMiddleware, async (req: Request, res: Response) => {
-//     try {
-//         if ((req.params.pk as string).toLowerCase().includes("shared")) {
-//             const pk = `ASSIGNMENT#Shared:${req.user.group}`;
-//             const assignment: Assignment = await getItemPkSk(
-//                 "ASSIGNMENT",
-//                 pk,
-//                 req.params.sk,
-//                 { owner: req.user.email }
-//             );
-//             res.json(assignment);
-//             return;
-//         }
-//         const assignment: Assignment = await getItemPkSk(
-//             "ASSIGNMENT",
-//             req.params.pk,
-//             req.params.sk,
-//             { owner: req.user.email }
-//         );
-//         console.log("ASSIGNMENT", assignment);
-//         if (!assignment) {
-//             res.status(404).json(null);
-//
-//             return;
-//         }
-//         res.json(assignment);
-//         return;
-//     } catch (err) {
-//         if (err instanceof Error && err.message === "403") {
-//             // Handle the permission error specifically
-//             console.log("Permission denied - user is not the owner");
-//             res.status(403).json({ message: "Internal server error" });
-//             return;
-//         }
-//         console.error("Error in GET /:", err);
-//         res.status(500).json({ message: "Internal server error" });
-//         return;
-//     }
-// });
 
 const AssignmentParams = struct {
     cid: []const u8,
@@ -87,41 +48,50 @@ pub fn getAssignment(c: *Context) !void {
 
 
 
-// pub fn getAssignmentRaw(c: *Context) !void {
-//     const headers = try server.makeHeaders(c.allocator, c.request);
-//     const params = try server.Parser.params(AssignmentParams, c);
-//     const user = dynamo.getUser(c) catch {
-//         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
+// router.get("/", authMiddleware, async (req: Request, res: Response) => {
+//     try {
+//         const assignments: Assignment[] = (
+//             await getItemsOwnerDT(req.user.email, "ASSIGNMENT")
+//         ).filter((a) => !a.pk.toLowerCase().includes("shared"));
+//         console.log("assignments", assignments.length);
+//         res.json(assignments);
 //         return;
-//     };
-//     const pk = blk: {
-//         if (std.ascii.indexOfIgnoreCase(params.cid, "shared") != null) {
-//             break :blk try std.fmt.allocPrint(c.allocator, "Shared:{s}", .{user.group orelse ""});
-//         }
-//         break :blk params.cid;
-//     };
-//     const raw = blk: {
-//         const cpx = try c.allocator.dupeZ(u8, "ASSIGNMENT");
-//         defer c.allocator.free(cpx);
-//         const cpk = try c.allocator.dupeZ(u8, pk);
-//         defer c.allocator.free(cpk);
-//         const csk = try c.allocator.dupeZ(u8, params.aid);
-//         defer c.allocator.free(csk);
-//         break :blk dynamo.c.get_item_pk_sk(cpx, cpk, csk);
-//     };
-//     if (raw == null) {
-//         try c.request.respond("null", .{ .status = .not_found, .extra_headers = headers });
+//     } catch (err) {
+//         console.error("Error in GET /:", err);
+//         res.status(500).json({ message: "Internal server error" });
 //         return;
 //     }
-//     defer std.c.free(raw);
-//     const slice = std.mem.span(raw);
-//     const owner_check = try std.json.parseFromSliceLeaky(AssignmentOwner, c.allocator, slice, .{
-//         .ignore_unknown_fields = true,
-//         .allocate = .alloc_always,
-//     });
-//     if (!std.mem.eql(u8, owner_check.OWNER, user.email)) {
-//         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
-//         return;
-//     }
-//     try c.request.respond(slice, .{ .extra_headers = headers });
-// }
+// });
+
+
+pub fn getAllAssignments(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
+
+    const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'assignments' AND name = ? AND updated_at > datetime('now', '-10 minutes') LIMIT 1", .{user.email}) catch null;
+    if (cached) |rows| {
+        if (rows.len > 0) {
+            const data = rows[0][9 .. rows[0].len - 2];
+            try c.request.respond(data, .{ .extra_headers = headers });
+            return;
+        }
+    }
+
+    const cuid = try c.allocator.dupeZ(u8, user.email);
+   
+    const all = dynamo.c.get_items_owner_dt(cuid, "ASSIGNMENT");
+    defer dynamo.c.item_list_free(all);
+ 
+    const json_body = try std.json.Stringify.valueAlloc(c.allocator, all.items, .{ .emit_null_optional_fields = false }); 
+
+    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('assignments', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
+        server.debugPrint("cache write failed: {}\n", .{err});
+    };
+
+    try c.request.respond(json_body, .{ .extra_headers = headers });
+}
+
+
+
+
+
