@@ -54,6 +54,11 @@ const AssignmentParams = struct {
     cid: []const u8,
     aid: []const u8,
 };
+
+const AssignmentOwner = struct {
+    OWNER: []const u8,
+};
+
 pub fn getAssignment(c: *Context) !void {
     const headers = try server.makeHeaders(c.allocator, c.request);
     const params = try server.Parser.params(AssignmentParams, c);
@@ -67,15 +72,28 @@ pub fn getAssignment(c: *Context) !void {
         }
         break :blk params.cid;
     };
-    const assignment = (try dynamo.getItemPkSk(types.assignment.Assignment, c.allocator, "ASSIGNMENT", pk, params.aid)) orelse {
-        try c.request.respond("", .{ .status = .not_found, .extra_headers = headers });
-        return;
+    const raw = blk: {
+        const cpx = try c.allocator.dupeZ(u8, "ASSIGNMENT");
+        defer c.allocator.free(cpx);
+        const cpk = try c.allocator.dupeZ(u8, pk);
+        defer c.allocator.free(cpk);
+        const csk = try c.allocator.dupeZ(u8, params.aid);
+        defer c.allocator.free(csk);
+        break :blk dynamo.c.get_item_pk_sk(cpx, cpk, csk);
     };
-    if (!std.mem.eql(u8, assignment.OWNER, user.email)) {
-        
+    if (raw == null) {
+        try c.request.respond("null", .{ .status = .not_found, .extra_headers = headers });
+        return;
+    }
+    defer std.c.free(raw);
+    const slice = std.mem.span(raw);
+    const owner_check = try std.json.parseFromSliceLeaky(AssignmentOwner, c.allocator, slice, .{
+        .ignore_unknown_fields = true,
+        .allocate = .alloc_always,
+    });
+    if (!std.mem.eql(u8, owner_check.OWNER, user.email)) {
         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
         return;
     }
-    try server.sendJson(c.allocator, c.request, assignment, .{ .extra_headers = headers });
-    return;
+    try c.request.respond(slice, .{ .extra_headers = headers });
 }

@@ -13,10 +13,10 @@ const assignment_routes = @import("routes/assignment_routes.zig");
 const grade_routes = @import("routes/grade_routes.zig");
 const sql = @import("sql.zig");
 pub const routes = &[_]server.Route{
-        .{ .path = "/courses/:cid/assignments/:aid", .middleware = &[_]Callback{
+       .{ .path = "/courses/:cid/assignments/:aid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAssignment },
-         .{ .path = "/classes/:cid/assignments/:aid", .middleware = &[_]Callback{
+    .{ .path = "/classes/:cid/assignments/:aid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAssignment },
 
