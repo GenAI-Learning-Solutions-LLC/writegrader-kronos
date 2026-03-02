@@ -7,27 +7,7 @@ const Callback = server.Callback;
 const dynamo = @import("../dynamo.zig");
 const auth = @import("../auth.zig");
 const sql = @import("../sql.zig");
-
-
-/// Builds a JSON array from pre-serialised JSON object strings.
-/// Returns a slice of exactly the right length — no trailing garbage bytes.
-pub fn buildJsonArray(allocator: std.mem.Allocator, items: []const []const u8) ![]const u8 {
-    var total_len: usize = 2; // '[' and ']'
-    for (items) |item| total_len += item.len + 1; // +1 reserved for comma
-    const buf = try allocator.alloc(u8, total_len);
-    var pos: usize = 0;
-    buf[pos] = '[';
-    pos += 1;
-    var first = true;
-    for (items) |item| {
-        if (!first) { buf[pos] = ','; pos += 1; }
-        @memcpy(buf[pos..][0..item.len], item);
-        pos += item.len;
-        first = false;
-    }
-    buf[pos] = ']';
-    return buf[0 .. pos + 1];
-}
+const utils = @import("../utils.zig");
 
 const SubmissionIndexParams = struct {
     cid: []const u8,
@@ -61,7 +41,7 @@ pub fn getAssignmentSubmissions(c: *Context) !void {
     const has_access = checkAssignmentAccess(c.allocator, user.email, params.cid, params.aid) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
-      return;
+        return;
     }
 
     var list = try dynamo.getItemsDatatypePk(c.allocator, "SUBMISSION", params.aid);
@@ -269,9 +249,7 @@ fn isSubmissionNew(allocator: std.mem.Allocator, user_email: []const u8, pk_str:
     const sk = sk_str orelse return true;
 
     // 1. Check submissions cache (ignore staleness)
-    const cached = sql.getAll(allocator,
-        "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? LIMIT 1",
-        .{user_email}) catch null;
+    const cached = sql.getAll(allocator, "SELECT data FROM fetch_cache WHERE data_type = 'submissions' AND name = ? LIMIT 1", .{user_email}) catch null;
     if (cached) |rows| {
         if (rows.len > 0 and rows[0].len > 11) {
             const data = rows[0][9 .. rows[0].len - 2];
@@ -312,7 +290,6 @@ fn hasAvailableCredits(user: dynamo.User) bool {
     return available > 0;
 }
 
-
 pub fn approveSubmission(c: *Context) !void {
     const user = try dynamo.getUser(c);
     const headers = try server.makeHeaders(c.allocator, c.request);
@@ -336,16 +313,28 @@ pub fn approveSubmission(c: *Context) !void {
 
     try stampAndNormalise(c.allocator, obj);
 
-    const class_id = if (obj.get("classId")) |v| switch (v) { .string => |s| s, else => "" } else "";
-    const assignment_id = if (obj.get("assignmentId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+    const class_id = if (obj.get("classId")) |v| switch (v) {
+        .string => |s| s,
+        else => "",
+    } else "";
+    const assignment_id = if (obj.get("assignmentId")) |v| switch (v) {
+        .string => |s| s,
+        else => "",
+    } else "";
     const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
         return;
     }
 
-    const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) { .string => |s| s, else => null } else null;
-    const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) { .string => |s| s, else => null } else null;
+    const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) {
+        .string => |s| s,
+        else => null,
+    } else null;
+    const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) {
+        .string => |s| s,
+        else => null,
+    } else null;
     const is_new = try isSubmissionNew(c.allocator, user.email, pk_str, sk_str);
 
     if (is_new and (if (user.group) |g| g.len == 0 else true) and !user.isAdmin) {
@@ -372,7 +361,6 @@ pub fn approveSubmission(c: *Context) !void {
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 
-
 pub fn saveSubmission(c: *Context) !void {
     const user = try dynamo.getUser(c);
     const headers = try server.makeHeaders(c.allocator, c.request);
@@ -396,16 +384,28 @@ pub fn saveSubmission(c: *Context) !void {
 
     try stampAndNormalise(c.allocator, obj);
 
-    const class_id = if (obj.get("classId")) |v| switch (v) { .string => |s| s, else => "" } else "";
-    const assignment_id = if (obj.get("assignmentId")) |v| switch (v) { .string => |s| s, else => "" } else "";
+    const class_id = if (obj.get("classId")) |v| switch (v) {
+        .string => |s| s,
+        else => "",
+    } else "";
+    const assignment_id = if (obj.get("assignmentId")) |v| switch (v) {
+        .string => |s| s,
+        else => "",
+    } else "";
     const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
         return;
     }
 
-    const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) { .string => |s| s, else => null } else null;
-    const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) { .string => |s| s, else => null } else null;
+    const pk_str: ?[]const u8 = if (obj.get("pk")) |v| switch (v) {
+        .string => |s| s,
+        else => null,
+    } else null;
+    const sk_str: ?[]const u8 = if (obj.get("sk")) |v| switch (v) {
+        .string => |s| s,
+        else => null,
+    } else null;
     const is_new = try isSubmissionNew(c.allocator, user.email, pk_str, sk_str);
 
     if (is_new and (if (user.group) |g| g.len == 0 else true) and !user.isAdmin) {
