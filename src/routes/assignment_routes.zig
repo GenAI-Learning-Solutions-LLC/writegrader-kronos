@@ -10,7 +10,6 @@ const sql = @import("../sql.zig");
 const utils = @import("../utils.zig");
 const types = @import("../schema.zig");
 
-
 const AssignmentParams = struct {
     cid: []const u8,
     aid: []const u8,
@@ -40,33 +39,18 @@ pub fn getAssignment(c: *Context) !void {
         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
         return;
     }
-            server.debugPrint("----houston we have an object {s}\n", .{assignment.sk});
+    server.debugPrint("----houston we have an object {s}\n", .{assignment.sk});
 
     try server.sendJson(c.allocator, c.request, assignment, .{ .extra_headers = headers });
     return;
 }
 
-
-
-// router.get("/", authMiddleware, async (req: Request, res: Response) => {
-//     try {
-//         const assignments: Assignment[] = (
-//             await getItemsOwnerDT(req.user.email, "ASSIGNMENT")
-//         ).filter((a) => !a.pk.toLowerCase().includes("shared"));
-//         console.log("assignments", assignments.length);
-//         res.json(assignments);
-//         return;
-//     } catch (err) {
-//         console.error("Error in GET /:", err);
-//         res.status(500).json({ message: "Internal server error" });
-//         return;
-//     }
-// });
-
-
 pub fn getAllAssignments(c: *Context) !void {
-    const user = try dynamo.getUser(c);
     const headers = try server.makeHeaders(c.allocator, c.request);
+    const user = dynamo.getUser(c) catch {
+        try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
+        return;
+    };
 
     const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'assignments' AND name = ? AND updated_at > datetime('now', '-10 minutes') LIMIT 1", .{user.email}) catch null;
     if (cached) |rows| {
@@ -78,11 +62,30 @@ pub fn getAllAssignments(c: *Context) !void {
     }
 
     const cuid = try c.allocator.dupeZ(u8, user.email);
-   
-    const all = dynamo.c.get_items_owner_dt(cuid, "ASSIGNMENT");
-    defer dynamo.c.item_list_free(all);
- 
-    const json_body = try std.json.Stringify.valueAlloc(c.allocator, all.items, .{ .emit_null_optional_fields = false }); 
+    defer c.allocator.free(cuid);
+    const cdt = try c.allocator.dupeZ(u8, "ASSIGNMENT");
+    defer c.allocator.free(cdt);
+
+    var raw = dynamo.c.get_items_owner_dt(cuid, cdt);
+    defer dynamo.c.item_list_free(&raw);
+
+    var list: std.ArrayList(u8) = .{};
+    try list.append(c.allocator, '[');
+    var first = true;
+    for (0..@intCast(raw.count)) |i| {
+        const item = std.mem.span(raw.items[i]);
+        const PkOnly = struct { pk: []const u8 };
+        const pk_check = std.json.parseFromSliceLeaky(PkOnly, c.allocator, item, .{
+            .ignore_unknown_fields = true,
+            .allocate = .alloc_always,
+        }) catch continue;
+        if (std.ascii.indexOfIgnoreCase(pk_check.pk, "shared") != null) continue;
+        if (!first) try list.append(c.allocator, ',');
+        try list.appendSlice(c.allocator, item);
+        first = false;
+    }
+    try list.append(c.allocator, ']');
+    const json_body = try list.toOwnedSlice(c.allocator);
 
     sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('assignments', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
         server.debugPrint("cache write failed: {}\n", .{err});
@@ -91,7 +94,51 @@ pub fn getAllAssignments(c: *Context) !void {
     try c.request.respond(json_body, .{ .extra_headers = headers });
 }
 
+pub fn saveAssignment(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
 
+    const content_length = c.request.head.content_length orelse {
+        try c.request.respond("", .{ .status = .bad_request });
+        return;
+    };
+    const read_buf = try c.allocator.alloc(u8, 4096);
+    const reader = try c.request.readerExpectContinue(read_buf);
+    const body = try reader.readAlloc(c.allocator, content_length);
 
+    var parsed = try std.json.parseFromSliceLeaky(types.assignment.Assignment, c.allocator, body, .{ .allocate = .alloc_always }) catch {
+        try c.request.respond("", .{ .status = .bad_request });
+    };
 
+    const is_new = try utils.isItemNew(c.allocator, user.email, parsed.pk, parsed.sk);
 
+    if (!is_new) {
+        const has_access = utils.checkAssignmentAccess(c.allocator, user.email, parsed.pk, parsed.sk) catch false;
+        if (!has_access) {
+            try c.request.respond("", .{ .status = .forbidden });
+            return;
+        }
+    }
+
+    const modified_body = try std.json.Stringify.valueAlloc(c.allocator, parsed, .{});
+    dynamo.saveItem(c.allocator, modified_body, null) catch {
+        try c.request.respond("", .{ .status = .internal_server_error });
+        return;
+    };
+
+    if (is_new) {
+        std.debug.print("new submission for {s}, calling updateCreditsUsed\n", .{user.email});
+        dynamo.updateCreditsUsed(c.allocator, user.email) catch |err| {
+            std.debug.print("updateCreditsUsed failed: {}\n", .{err});
+        };
+    }
+
+    invalidateAssignmentCache(user.email);
+    try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
+}
+
+pub fn invalidateAssignmentCache(user_email: []const u8) void {
+    sql.exec("DELETE FROM fetch_cache WHERE data_type IN ('assignments', 'assignment') AND user = ?", .{user_email}) catch |err| {
+        std.debug.print("cache invalidate failed: {}\n", .{err});
+    };
+}

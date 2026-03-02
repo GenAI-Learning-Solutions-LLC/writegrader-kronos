@@ -37,7 +37,7 @@ pub fn getAssignmentSubmissions(c: *Context) !void {
         try c.request.respond("", .{ .status = .bad_request });
         return;
     };
-    const has_access = checkAssignmentAccess(c.allocator, user.email, params.cid, params.aid) catch false;
+    const has_access = utils.checkAssignmentAccess(c.allocator, user.email, params.cid, params.aid) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
         return;
@@ -183,48 +183,6 @@ const AssignmentAccess = struct {
     sharedWith: [][]const u8 = &.{},
 };
 
-fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u8, class_id: []const u8, assignment_id: []const u8) !bool {
-    if (class_id.len == 0 or assignment_id.len == 0) return false;
-
-    const cache_key = try std.fmt.allocPrint(allocator, "{s}#{s}", .{ class_id, assignment_id });
-
-    const cached = sql.getAll(allocator, "SELECT data FROM fetch_cache WHERE data_type = 'assignment' AND name = ? AND updated_at > datetime('now', '-5 minutes') LIMIT 1", .{cache_key}) catch null;
-    if (cached) |rows| {
-        if (rows.len > 0) {
-            const data = rows[0][9 .. rows[0].len - 2];
-            const assignment = std.json.parseFromSliceLeaky(AssignmentAccess, allocator, data, .{ .ignore_unknown_fields = true }) catch return false;
-            if (std.mem.eql(u8, user_email, assignment.OWNER)) return true;
-            for (assignment.sharedWith) |sw| {
-                if (std.mem.eql(u8, user_email, sw)) return true;
-            }
-            return false;
-        }
-    }
-
-    const cpx = try std.heap.c_allocator.dupeZ(u8, "ASSIGNMENT");
-    defer std.heap.c_allocator.free(cpx);
-    const cpk = try std.heap.c_allocator.dupeZ(u8, class_id);
-    defer std.heap.c_allocator.free(cpk);
-    const csk = try std.heap.c_allocator.dupeZ(u8, assignment_id);
-    defer std.heap.c_allocator.free(csk);
-
-    const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk);
-    if (result == null) return false;
-    defer std.c.free(result);
-    const slice = std.mem.span(result);
-
-    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('assignment', ?, ?, ?)", .{ cache_key, cache_key, slice }) catch |err| {
-        std.debug.print("assignment cache write failed: {}\n", .{err});
-    };
-
-    const assignment = std.json.parseFromSliceLeaky(AssignmentAccess, allocator, slice, .{ .ignore_unknown_fields = true }) catch return false;
-    if (std.mem.eql(u8, user_email, assignment.OWNER)) return true;
-    for (assignment.sharedWith) |sw| {
-        if (std.mem.eql(u8, user_email, sw)) return true;
-    }
-    return false;
-}
-
 fn stampAndNormalise(allocator: std.mem.Allocator, obj: *std.json.ObjectMap) !void {
     var ts_buf: [32]u8 = undefined;
     dynamo.c.iso_timestamp(&ts_buf, ts_buf.len);
@@ -318,7 +276,7 @@ pub fn approveSubmission(c: *Context) !void {
         .string => |s| s,
         else => "",
     } else "";
-    const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
+    const has_access = utils.checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
         return;
@@ -389,7 +347,7 @@ pub fn saveSubmission(c: *Context) !void {
         .string => |s| s,
         else => "",
     } else "";
-    const has_access = checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
+    const has_access = utils.checkAssignmentAccess(c.allocator, user.email, class_id, assignment_id) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
         return;
