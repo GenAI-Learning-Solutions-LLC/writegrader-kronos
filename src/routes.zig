@@ -28,6 +28,9 @@ pub const routes = &[_]server.Route{
     .{ .path = "/assignments", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAllAssignments},
+    .{ .path = "/assignments", .method = .PUT, .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = assignment_routes.saveAssignment},
 
 
 
