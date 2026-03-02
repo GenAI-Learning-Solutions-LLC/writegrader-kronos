@@ -7,7 +7,7 @@ pub const Language = enum {
 };
 
 pub const AssignmentSetting = struct {
-    value: std.json.Value = .null,
+    value: std.json.Value = .{ .string = "" },
     isTurnedOn: bool = false,
     share: bool = false,
 };

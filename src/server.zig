@@ -97,7 +97,7 @@ pub const Route = struct {
 };
 
 pub fn sendJson(allocator: std.mem.Allocator, request: *std.http.Server.Request, object: anytype, options: std.http.Server.Request.RespondOptions) !void {
-    const body = try std.json.Stringify.valueAlloc(allocator, object, .{});
+    const body = try std.json.Stringify.valueAlloc(allocator, object, .{ .emit_null_optional_fields = false });
     defer allocator.free(body);
     try request.respond(body, options);
 }
