@@ -16,6 +16,10 @@ pub const routes = &[_]server.Route{
         .{ .path = "/courses/:cid/assignments/:aid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAssignment },
+         .{ .path = "/classes/:cid/assignments/:aid", .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = assignment_routes.getAssignment },
+
 
     .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
         authMiddleware,

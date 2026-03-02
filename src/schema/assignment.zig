@@ -6,13 +6,8 @@ pub const Language = enum {
     Bulgarian,
 };
 
-pub const StringOrBool = union(enum) {
-    string: []const u8,
-    boolean: bool,
-};
-
 pub const AssignmentSetting = struct {
-    value: StringOrBool = .{ .string = "" },
+    value: std.json.Value = .null,
     isTurnedOn: bool = false,
     share: bool = false,
 };
@@ -52,7 +47,7 @@ pub const Assignment = struct {
     sk: []const u8,
     name: []const u8,
     id: []const u8,
-    model: []const u8 = "",
+    model: ?[]const u8 = null,
     visibility: []const u8 = "private",
     settingsWGSP: AssignmentSettingsWGSP = .{},
     DATATYPE: []const u8 = "ASSIGNMENT",

@@ -63,11 +63,11 @@ pub fn getAssignment(c: *Context) !void {
     };
     const pk = blk: {
         if (std.ascii.indexOfIgnoreCase(params.cid, "shared") != null) {
-            break :blk try std.fmt.allocPrint(c.allocator, "Shared:{s}", .{user.group});
+            break :blk try std.fmt.allocPrint(c.allocator, "Shared:{s}", .{user.group orelse ""});
         }
         break :blk params.cid;
     };
-    const assignment = (dynamo.getItemPkSk(types.assignment.Assignment, c.allocator, "ASSIGNMENT", pk, params.aid) catch null) orelse {
+    const assignment = (try dynamo.getItemPkSk(types.assignment.Assignment, c.allocator, "ASSIGNMENT", pk, params.aid)) orelse {
         try c.request.respond("", .{ .status = .not_found, .extra_headers = headers });
         return;
     };

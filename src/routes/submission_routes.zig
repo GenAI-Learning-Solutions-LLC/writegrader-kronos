@@ -37,7 +37,6 @@ pub fn getAssignmentSubmissions(c: *Context) !void {
         try c.request.respond("", .{ .status = .bad_request });
         return;
     };
-    std.debug.print("stuff {s} {s}\n", .{ params.cid, params.cid });
     const has_access = checkAssignmentAccess(c.allocator, user.email, params.cid, params.aid) catch false;
     if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden });
@@ -45,7 +44,6 @@ pub fn getAssignmentSubmissions(c: *Context) !void {
     }
 
     var list = try dynamo.getItemsDatatypePk(c.allocator, "SUBMISSION", params.aid);
-    std.debug.print("list {d}\n", .{list.items.len});
 
     defer list.deinit();
 
@@ -66,7 +64,6 @@ pub fn getAssignmentSubmissions(c: *Context) !void {
         first = false;
     }
     json_body[pos] = ']';
-    std.debug.print("{s}\n", .{json_body[0 .. pos + 1]});
 
     try c.request.respond(json_body[0 .. pos + 1], .{ .extra_headers = headers });
 }
@@ -108,7 +105,7 @@ pub fn getAllSubmissions(c: *Context) !void {
     json_body[pos] = ']';
 
     sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('submissions', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
-        std.debug.print("cache write failed: {}\n", .{err});
+        server.debugPrint("cache write failed: {}\n", .{err});
     };
 
     try c.request.respond(json_body, .{ .extra_headers = headers });
@@ -143,7 +140,7 @@ pub fn getUnapprovedSubmissions(c: *Context) !void {
     const json_body = try std.json.Stringify.valueAlloc(c.allocator, unapproved, .{});
 
     sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('submissions_unapproved', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
-        std.debug.print("cache write failed: {}\n", .{err});
+        server.debugPrint("cache write failed: {}\n", .{err});
     };
 
     try c.request.respond(json_body, .{ .extra_headers = headers });
