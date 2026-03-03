@@ -11,7 +11,8 @@ rsync -avz  \
   --exclude='.zig-cache' \
   --exclude='zig-out' \
   --exclude='.git' \
-    --exclude='config.json' \
+  --exclude='run.sh' \
+  --exclude='config.json' \
   --exclude='.env' \
   --exclude='*.db' \
   --exclude='*.db-shm' \
