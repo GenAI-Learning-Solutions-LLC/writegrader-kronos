@@ -106,17 +106,18 @@ pub fn saveAssignment(c: *Context) !void {
     const reader = try c.request.readerExpectContinue(read_buf);
     const body = try reader.readAlloc(c.allocator, content_length);
 
-    const parsed = std.json.parseFromSliceLeaky(types.assignment.Assignment, c.allocator, body, .{ .allocate = .alloc_always }) catch {
+    var parsed = std.json.parseFromSliceLeaky(types.assignment.Assignment, c.allocator, body, .{ .allocate = .alloc_always }) catch {
         try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
         return;
     };
+    parsed.updatedAt = utils.stampUTC(c.allocator) catch parsed.updatedAt;
 
-     const has_access = try utils.checkAssignmentAccess(c.allocator, user.email, parsed.pk, parsed.sk);
-     if (!has_access) {
+    const has_access = utils.checkAssignmentAccess(c.allocator, user.email, parsed.pk, parsed.sk) catch false;
+    if (!has_access) {
         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
         return;
-     }
-    
+    }
+
     const modified_body = try std.json.Stringify.valueAlloc(c.allocator, parsed, .{ .emit_null_optional_fields = false });
     dynamo.saveItem(c.allocator, modified_body, user.email) catch {
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });

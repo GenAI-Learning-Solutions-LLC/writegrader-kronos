@@ -41,7 +41,13 @@ const AssignmentAccess = struct {
 };
 
 
-pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u8, class_id: []const u8, assignment_id: []const u8) !bool {
+pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u8, pk: []const u8, sk: []const u8) !bool {
+
+
+    const class_id = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
+    const assignment_id = if (std.mem.indexOf(u8, sk, "#")) |idx| sk[idx + 1 ..] else sk;
+
+
     if (class_id.len == 0 or assignment_id.len == 0) return false;
 
     const cache_key = try std.fmt.allocPrint(allocator, "{s}#{s}", .{ class_id, assignment_id });
