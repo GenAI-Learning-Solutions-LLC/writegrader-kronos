@@ -186,6 +186,14 @@ pub fn saveItem(allocator: std.mem.Allocator, item_json: []const u8, owner: ?[]c
     const rc = dynamo.save_item_plain(cjson, cow_c);
     if (rc != 0) return error.DynamoError;
 }
+
+pub fn saveObj(allocator: std.mem.Allocator, item: anytype, owner: ?[]const u8) !void {
+    const item_json: []const u8 = try std.json.Stringify.valueAlloc(allocator, item, .{ .emit_null_optional_fields = false });
+    defer allocator.free(item_json);
+    return saveItem(allocator,  item_json, owner); 
+}
+
+
 pub const SubscriptionInfo = struct {
     cancelAt: ?f64 = null,
     credits: ?f64 = 10,

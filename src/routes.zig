@@ -10,6 +10,7 @@ const auth = @import("auth.zig");
 const user_routes = @import("routes/user_routes.zig");
 const sub_routes = @import("routes/submission_routes.zig");
 const assignment_routes = @import("routes/assignment_routes.zig");
+const report_routes = @import("routes/report_routes.zig");
 const grade_routes = @import("routes/grade_routes.zig");
 const sql = @import("sql.zig");
 
@@ -40,6 +41,15 @@ pub const routes = &[_]server.Route{
     .{ .path = "/submissions", .method = .PUT, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.saveSubmission },
+
+
+
+    //report routes
+    .{ .path = "/reports", .method = .PUT, .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = report_routes.approveSubmission },
+
+
 
     // grade routes
     .{ .path = "/grade", .method = .POST, .middleware = &[_]Callback{

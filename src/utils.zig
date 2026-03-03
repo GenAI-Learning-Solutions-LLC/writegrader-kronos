@@ -91,7 +91,7 @@ pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u
 
 
 
-fn isItemNew(allocator: std.mem.Allocator, user_email: []const u8, cache_type:[]const u8, pk: []const u8, sk: []const u8) !bool {
+pub fn isItemNew(allocator: std.mem.Allocator, user_email: []const u8, cache_type:[]const u8, pk: []const u8, sk: []const u8) !bool {
 
     // 1. Check item cache (ignore staleness)
     const cached = sql.getAll(allocator, "SELECT data FROM fetch_cache WHERE data_type = '?' AND name = ? LIMIT 1", .{cache_type, user_email}) catch null;
