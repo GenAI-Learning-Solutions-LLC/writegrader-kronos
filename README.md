@@ -1,59 +1,54 @@
-# Zoi
+# writegrader-kronos
 
-Zoi is an HTTP server template written in Zig that depends only on the standard library. It is not a library — it is a starting point for building your own Zig server. Clone it, edit `src/routes.zig`, and go.
+Backend API server for [WriteGrader](https://writegrader.com), built on [Zoi](./ZOI.md) — a minimal Zig HTTP server. Handles assignments, submissions, grading, and user auth against AWS DynamoDB.
 
-## Philosophy
+## Platform
 
-Most web frameworks are built around the assumption that you should not have to think about the server. Zoi takes the opposite position: the server is simple enough that you should just own it.
+Development runs on macOS and Linux. Production runs on FreeBSD. The codebase is expected to remain compatible with all three. Zig's cross-compilation support and the avoidance of platform-specific dependencies keep this straightforward, but any new C code or system calls should be verified against FreeBSD.
 
-Rather than hiding routing, request parsing, and memory management behind a versioned API, Zoi gives you a small, readable codebase that you can read in an afternoon and modify freely. There is no framework to update, no breaking changes to absorb, and no behavior you cannot inspect. When something does not work the way you want, you fix it directly rather than waiting for an upstream maintainer.
+## Stack
 
-The entire implementation — routing, middleware, static files, templating, JSON parsing, cookie handling, and JWT verification — fits in a handful of files totalling a few hundred lines. Every piece of functionality is there because a server will likely need it.
-
-On the technical side, Zig's comptime type system lets the parser accept any struct type at the call site without runtime reflection or code generation. Each request is handled inside an arena allocator that is reset between requests, which means memory management is handled structurally rather than requiring individual frees in handler code. Worker threads are spawned at startup, failed workers are automatically restarted, and the memory and routing overhead per request is minimal.
-
-## Production Readiness
-
-Zoi has been running in production for over a year. Zoi's site is self-hosted, and benchmarks show Zoi can sustain over 10,000 requests per second against a live SQLite backend on commodity hardware. That is about 3.6x the throughput of an equivalent Bun server on the same machine, achieved through Zig's threading model and the elimination of lock contention via thread-local storage. See the [performance writeup](https://github.com/AndrewGossage/Thanatos/blob/main/pages/sql.html) for the full breakdown.
-
-The architecture is straightforward under load: a fixed thread pool accepts connections, each worker uses an arena allocator that resets between requests, and the router is a simple linear scan with no heap allocation per match. There is no runtime, no garbage collector, and no framework overhead.
-
-Two things to know before deploying:
-
-- **No TLS.** Zoi does not terminate HTTPS. Run it behind nginx, Caddy, or any TLS-terminating proxy — the same setup you would use for any backend.
-- **Zig is pre-1.0.** The language and standard library are still evolving. Zig updates almost always require changes to the server code. Because you own the code rather than depending on a versioned package, those changes are yours to make on your own schedule. Zoi tracks the current stable version of Zig.
-
-## Requirements
-
-- Zig 0.16
-
-## Getting Started
-
-```sh
-git clone https://github.com/AndrewGossage/Zoi
-cd Zoi
-zig build run
-```
-
-The server will start on the address and port configured in `config.json`.
+- **Zig 0.16** — application server
+- **DynamoDB** — primary data store, accessed via a custom C client (`src/dynamo.c`)
+- **libcurl** — used by `dynamo.c` to make signed DynamoDB HTTP requests
+- **SQLite / libsqlite3** — request-scoped cache to reduce DynamoDB round trips
+- **JWT** — cookie-based auth (`userToken`)
+- **Caddy** — production TLS termination and reverse proxy; the Zig server binds locally and Caddy handles HTTPS
 
 ## Project Structure
 
 ```
 src/
-  main.zig    — entry point, wires config and routes together
-  routes.zig  — define your routes here
-  server.zig  — core server, router, and parser
-  config.zig  — loads config.json
-  fmt.zig     — template rendering
-  auth.zig    — JWT verification utilities
-static/       — static files served by the built-in static handler
-config.json   — server configuration
+  main.zig              — entry point
+  routes.zig            — route table
+  server.zig            — core server, router, sendJson, makeHeaders
+  dynamo.zig            — DynamoDB helpers (getItemPkSk, getUser, saveItem, …)
+  dynamo.c / dynamo.h   — custom C DynamoDB client (libcurl)
+  sql.zig               — SQLite cache (exec, getAll)
+  auth.zig              — JWT decode
+  config.zig            — loads config.json
+  fmt.zig               — template rendering
+  utils.zig             — shared utilities
+  schema.zig            — re-exports schema types
+  schema/
+    assignment.zig      — Assignment struct and related types
+  routes/
+    assignment_routes.zig
+    submission_routes.zig
+    grade_routes.zig
+    user_routes.zig
+config.json             — bind address, port, worker count
 ```
 
-## Configuration
+## Running
 
-`config.json` controls the server:
+```sh
+./dev.sh
+```
+
+The server starts on the address and port in `config.json` (default `127.0.0.1:8081`).
+
+## Configuration
 
 ```json
 {
@@ -63,139 +58,109 @@ config.json   — server configuration
 }
 ```
 
-| Field     | Description                          | Default |
-|-----------|--------------------------------------|---------|
-| `address` | Bind address                         | —       |
-| `port`    | Port to listen on                    | —       |
-| `workers` | Number of worker threads             | `1`     |
+## API Routes
 
-## Routing
+All routes require a valid `userToken` cookie (JWT, verified by `authMiddleware`).
 
-Routes are defined in `src/routes.zig` as a slice of `Route` structs.
+### Assignments
 
-```zig
-pub const routes = &[_]server.Route{
-    .{ .path = "/",              .callback = index },
-    .{ .path = "/static/*",     .callback = server.static },
-    .{ .path = "/:param",       .callback = param_test },
-    .{ .path = "/api/:endpoint", .method = .POST, .callback = postEndpoint },
-};
-```
+| Method | Path | Handler |
+|--------|------|---------|
+| `GET` | `/assignments/:cid/:aid` | `getAssignment` |
+| `GET` | `/courses/:cid/assignments/:aid` | `getAssignment` |
+| `GET` | `/classes/:cid/assignments/:aid` | `getAssignment` |
+| `GET` | `/courses/:cid/assignments/:aid/submissions` | `getAssignmentSubmissions` |
+| `PUT` | `/submissions` | `saveSubmission` |
+| `GET` | `/submissions` | `getAllSubmissions` |
+| `GET` | `/courses/:cid/assignments/:aid/submissions/:sid` | `get_submission` |
+| `POST` | `/grade` | `grade` |
+| `POST` | `/grade/criterion` | `gradeCriterion` |
 
-- **`:name`** — matches a single path segment and makes it available via `Parser.params`
-- **`*`** — wildcard, matches the rest of the path (use for static file routes)
-- **`method`** — defaults to `.GET`; set to any `std.http.Method` value
+## Writing a Route
 
-### Middleware
+Define a handler in a routes file, register it in `src/routes.zig`, and use `authMiddleware` if the route requires authentication.
 
-Routes can have a middleware chain that runs before the main callback. Middleware receives the same `Context` and can store values for the handler using `c.put`.
+**1. Handler** (`src/routes/assignment_routes.zig`):
 
 ```zig
-.{ .path = "/", .middleware = &[_]Callback{ auth_check }, .callback = index }
-```
+const ItemParams = struct { id: []const u8 };
 
-```zig
-fn auth_check(c: *Context) !void {
-    try c.put("user", "alice");
+pub fn getItem(c: *Context) !void {
+    const headers = try server.makeHeaders(c.allocator, c.request);
+    const params = try server.Parser.params(ItemParams, c);
+    const user = dynamo.getUser(c) catch {
+        try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
+        return;
+    };
+
+    const item = (try dynamo.getItemPkSk(MySchema, c.allocator, "ITEM", user.email, params.id)) orelse {
+        try c.request.respond("", .{ .status = .not_found, .extra_headers = headers });
+        return;
+    };
+
+    try server.sendJson(c.allocator, c.request, item, .{ .extra_headers = headers });
 }
-
-fn index(c: *Context) !void {
-    const user = c.get("user").?;
-    // ...
-}
 ```
 
-## Parsing
-
-`server.Parser` provides helpers for extracting data from requests.
-
-### URL Parameters
+**2. Registration** (`src/routes.zig`):
 
 ```zig
-const Params = struct { id: []const u8 };
-const p = try server.Parser.params(Params, c);
+.{ .path = "/items/:id", .middleware = &[_]Callback{ authMiddleware }, .callback = my_routes.getItem },
 ```
 
-### Query String
+For endpoints that don't need to modify the data, return the raw DynamoDB bytes directly instead of parsing into a struct and re-serializing — this avoids dropping fields not present in the Zig type:
 
 ```zig
-const Query = struct { value: ?[]const u8 };
-const q = server.Parser.query(Query, c.allocator, c.request);
-```
-
-### JSON Body
-
-```zig
-const Body = struct { name: []const u8 };
-const body = try server.Parser.json(Body, c.allocator, c.request);
-```
-
-### Cookies
-
-```zig
-var cookies = try server.Parser.parseCookies(c.allocator, c.request);
-const token = cookies.get("session");
-```
-
-### URL Decoding
-
-```zig
-const decoded = try server.Parser.urlDecode(raw, c.allocator);
-```
-
-## Sending Responses
-
-```zig
-// Plain response
-try c.request.respond(body, .{ .status = .ok, .keep_alive = false });
-
-// JSON response
-const headers = &[_]std.http.Header{
-    .{ .name = "Content-Type", .value = "application/json" },
+// Fetch raw bytes, parse only what's needed for auth/logic
+const raw = dynamo.c.get_item_pk_sk(cpx, cpk, csk) orelse {
+    try c.request.respond("", .{ .status = .not_found, .extra_headers = headers });
+    return;
 };
-try server.sendJson(c.allocator, c.request, my_struct, .{
-    .status = .ok,
-    .keep_alive = false,
-    .extra_headers = headers,
+defer std.c.free(raw);
+const slice = std.mem.span(raw);
+const owner = try std.json.parseFromSliceLeaky(struct { OWNER: []const u8 }, c.allocator, slice, .{
+    .ignore_unknown_fields = true, .allocate = .alloc_always,
 });
+if (!std.mem.eql(u8, owner.OWNER, user.email)) {
+    try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
+    return;
+}
+try c.request.respond(slice, .{ .extra_headers = headers });
 ```
 
-## Templating
+## Auth
 
-`fmt.renderTemplate` reads an HTML file and replaces `$field$` placeholders with values from an anonymous struct.
+`authMiddleware` runs before every protected route. It:
+1. Reads the `userToken` cookie
+2. Decodes and verifies the JWT
+3. Looks up the user record in SQLite cache (5 min TTL), falling back to DynamoDB
+4. Stores the user JSON in the request context for handlers to read via `dynamo.getUser`
+
+## Caching
+
+SQLite is used as a request cache with per-user TTLs:
+
+- **User records** — 5 minutes (`fetch_cache` table, `data_type = 'user'`)
+- **Assignment lists** — 10 minutes (`data_type = 'assignments'`)
+
+Cache is invalidated explicitly on write (e.g. `invalidateAssignmentCache`).
+
+## DynamoDB Patterns
+
+Keys follow the pattern `DATATYPE#value`. The C library prefixes both pk and sk automatically:
 
 ```zig
-const body = try fmt.renderTemplate(c.io, "./static/index.html", .{
-    .username = "alice",
-    .title = "Dashboard",
-}, c.allocator);
-defer c.allocator.free(body);
+// Looks up pk="ASSIGNMENT#<pk>", sk="ASSIGNMENT#<sk>"
+dynamo.getItemPkSk(Assignment, allocator, "ASSIGNMENT", pk, sk)
 ```
 
-In your HTML:
-```html
-<h1>Welcome, $username$</h1>
-<title>$title$</title>
-```
+Shared/library assignments use `pk = "ASSIGNMENT#Shared:<group>"`.
 
-## Static Files
+## Frontend Schema Compatibility
 
-Use `server.static` as the callback on any route ending with `*`. Files are served from the current working directory, and dotfiles are blocked by default.
+The `Assignment` struct in `src/schema/assignment.zig` is kept in sync with `AssignmentSchema` in [atlas-core](../atlas/packages/core/src/models/schemas/assignment.ts). Two rules that must be maintained:
 
-```zig
-.{ .path = "/static/*", .callback = server.static }
-```
+- `sendJson` uses `emit_null_optional_fields = false` — the frontend's `v.optional(...)` expects absent fields, not `null`
+- `AssignmentSetting.value` defaults to `= .{ .string = "" }` — the schema expects `string | boolean`, not `null`
 
-A request to `/static/styles/main.css` will serve `static/styles/main.css`. If the path has no extension, `index.html` is appended automatically.
-
-## Authentication
-
-`auth.zig` provides JWT verification using HMAC-SHA256. Set the `JWT_SECRET` environment variable and call `auth.decodeAuth` to verify and decode a token from a cookie value.
-
-```zig
-const claims = try auth.decodeAuth(c.allocator, token);
-```
-
-## Example Project
-
-[Thanatos](https://github.com/AndrewGossage/Thanatos) demonstrates using Zoi as a lightweight alternative to Tauri or Electron for desktop applications.
+For read-only GET endpoints, prefer returning raw DynamoDB JSON directly rather than parsing and re-serializing through the struct, to avoid dropping unknown fields.
