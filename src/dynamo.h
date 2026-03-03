@@ -93,4 +93,13 @@ char *invoke_lambda_sync(const char *function_name, const char *payload);
  */
 int update_credits_used(const char *email);
 
+/* Increments subscriptionInfo.approvals for the user. Returns 0 on success. */
+int update_approvals(const char *email);
+
+/* Appends value to lists_{hour}.list_key on a daily LOG item keyed by prefix.
+ * pk/sk = "{prefix}LOG#{YYYY-MM-DD}" in Mountain Time.
+ * Returns 0 on success, -1 on failure. */
+int upsert_append_list(const char *list_key, const char *value,
+                       const char *prefix);
+
 #endif /* DYNAMO_H */

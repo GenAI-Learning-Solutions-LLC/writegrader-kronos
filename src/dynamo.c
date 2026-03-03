@@ -1424,3 +1424,103 @@ int update_credits_used(const char *email) {
     free(resp);
     return 0;
 }
+
+int update_approvals(const char *email) {
+    const char *table = getenv("DYNAMO_TABLE_NAME");
+    if (!table) {
+        fprintf(stderr, "update_approvals: DYNAMO_TABLE_NAME not defined\n");
+        return -1;
+    }
+
+    char pk_val[512];
+    snprintf(pk_val, sizeof(pk_val), "USER#%s", email);
+
+    Buf body = {0};
+    b_fmt(&body,
+          "{\"TableName\":\"%s\","
+          "\"Key\":{\"pk\":{\"S\":\"%s\"},\"sk\":{\"S\":\"%s\"}},"
+          "\"UpdateExpression\":\"SET #sub.#ap = if_not_exists(#sub.#ap, :zero) + :one\","
+          "\"ExpressionAttributeNames\":{\"#sub\":\"subscriptionInfo\",\"#ap\":\"approvals\"},"
+          "\"ExpressionAttributeValues\":{\":one\":{\"N\":\"1\"},\":zero\":{\"N\":\"0\"}}}",
+          table, pk_val, pk_val);
+
+    char *resp = dynamo_request("DynamoDB_20120810.UpdateItem", body.b);
+    free(body.b);
+    if (!resp) {
+        fprintf(stderr, "update_approvals: UpdateItem request failed\n");
+        return -1;
+    }
+    fprintf(stderr, "update_approvals: done\n");
+    free(resp);
+    return 0;
+}
+
+/* Appends value (a plain string) to lists_{hour}.list_key on a daily LOG item.
+ * pk/sk = "{prefix}LOG#{YYYY-MM-DD}" in Mountain Time (UTC-7). */
+int upsert_append_list(const char *list_key, const char *value,
+                       const char *prefix) {
+    const char *table = getenv("DYNAMO_TABLE_NAME");
+    if (!table) {
+        fprintf(stderr, "upsert_append_list: DYNAMO_TABLE_NAME not defined\n");
+        return -1;
+    }
+
+    /* Mountain Time = UTC-7 (MST; close enough without DST detection) */
+    time_t now = time(NULL) - 7 * 3600;
+    struct tm t;
+    gmtime_r(&now, &t);
+    char date_str[12];
+    strftime(date_str, sizeof(date_str), "%Y-%m-%d", &t);
+    char attr_name[32];
+    snprintf(attr_name, sizeof(attr_name), "lists_%d", t.tm_hour);
+
+    char pk_val[640];
+    snprintf(pk_val, sizeof(pk_val), "%sLOG#%s", prefix, date_str);
+
+    /* JSON-escape value into a buffer */
+    Buf esc = {0};
+    for (const char *p = value; *p; p++) {
+        if (*p == '"')       { b_chr(&esc, '\\'); b_chr(&esc, '"'); }
+        else if (*p == '\\') { b_chr(&esc, '\\'); b_chr(&esc, '\\'); }
+        else                   b_chr(&esc, *p);
+    }
+    if (!esc.b) esc.b = strdup("");
+
+    /* Step 1: ensure the outer map attribute exists */
+    Buf body1 = {0};
+    b_fmt(&body1,
+          "{\"TableName\":\"%s\","
+          "\"Key\":{\"pk\":{\"S\":\"%s\"},\"sk\":{\"S\":\"%s\"}},"
+          "\"UpdateExpression\":\"SET #lists = if_not_exists(#lists, :empty)\","
+          "\"ExpressionAttributeNames\":{\"#lists\":\"%s\"},"
+          "\"ExpressionAttributeValues\":{\":empty\":{\"M\":{}}}}",
+          table, pk_val, pk_val, attr_name);
+
+    char *resp1 = dynamo_request("DynamoDB_20120810.UpdateItem", body1.b);
+    free(body1.b);
+    if (resp1) free(resp1);
+
+    /* Step 2: append value to the list */
+    Buf body2 = {0};
+    b_fmt(&body2,
+          "{\"TableName\":\"%s\","
+          "\"Key\":{\"pk\":{\"S\":\"%s\"},\"sk\":{\"S\":\"%s\"}},"
+          "\"UpdateExpression\":\"SET #lists.#k = list_append(if_not_exists(#lists.#k, :empty), :val)\","
+          "\"ExpressionAttributeNames\":{\"#lists\":\"%s\",\"#k\":\"%s\"},"
+          "\"ExpressionAttributeValues\":{"
+          "\":empty\":{\"L\":[]},"
+          "\":val\":{\"L\":[{\"S\":\"%s\"}]}"
+          "}}",
+          table, pk_val, pk_val, attr_name, list_key, esc.b);
+    free(esc.b);
+
+    char *resp2 = dynamo_request("DynamoDB_20120810.UpdateItem", body2.b);
+    free(body2.b);
+    if (!resp2) {
+        fprintf(stderr, "upsert_append_list: append failed\n");
+        return -1;
+    }
+    fprintf(stderr, "upsert_append_list: done key=%s\n", list_key);
+    free(resp2);
+    return 0;
+}

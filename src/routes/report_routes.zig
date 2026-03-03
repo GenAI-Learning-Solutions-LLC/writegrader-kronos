@@ -268,23 +268,51 @@ pub fn approveSubmission(c: *Context) !void {
         try c.request.respond("{\"error\":\"Internal Server Error\"}", .{ .status = .internal_server_error, .extra_headers = headers });
         return;
     };
-    _ = was_approved;
-    // Create/update report on approval transition
-    // Fetch assignment: pk=classId, sk=assignmentId (which is the stem of submission.pk)
-    const assignment_sk = parsed.assignmentId; // already a stem
-    if (try dynamo.getItemPkSk(schema.Assignment, c.allocator, "ASSIGNMENT", parsed.classId, assignment_sk)) |assignment| {
-        // Fetch class for its name
-        const class_name = blk: {
-            if (try dynamo.getItemPkSk(ClassBasic, c.allocator, "CLASS", user.email, parsed.classId)) |cls| {
-                break :blk cls.name;
+    // Tracked events and report on first approval
+    if (!was_approved or true) {
+        dynamo.updateApprovals(c.allocator, user.email) catch |err| {
+            std.debug.print("updateApprovals failed: {}\n", .{err});
+        };
+
+        const group = if (user.group) |g| if (g.len > 0) g else "INDIVIDUAL" else "INDIVIDUAL";
+        if (parsed.externalId.len > 0) {
+            // Rearrange externalId segments: original [0:1:2:3:4] → [email:2:4:1:3:0]
+            var parts: [8][]const u8 = undefined;
+            var part_count: usize = 0;
+            var it = std.mem.splitScalar(u8, parsed.externalId, ':');
+            while (it.next()) |part| {
+                if (part_count >= parts.len) break;
+                parts[part_count] = part;
+                part_count += 1;
             }
-            break :blk @as([]const u8, "none");
-        };
-        createAndSaveReport(c.allocator, user.email, parsed, assignment, class_name) catch |err| {
-            std.debug.print("createAndSaveReport failed: {}\n", .{err});
-        };
-    } else {
-        std.debug.print("approveSubmission: assignment not found for classId={s} assignmentId={s}\n", .{ parsed.classId, assignment_sk });
+            if (part_count >= 5) {
+                const val = try std.fmt.allocPrint(c.allocator, "{s}:{s}:{s}:{s}:{s}:{s}", .{ user.email, parts[2], parts[4], parts[1], parts[3], parts[0] });
+                dynamo.upsertAppendList(c.allocator, "externalApproval", val, group) catch |err| {
+                    std.debug.print("upsertAppendList externalApproval failed: {}\n", .{err});
+                };
+            }
+        } else {
+            const val = try std.fmt.allocPrint(c.allocator, "{s}:{s}", .{ user.email, stringStem(parsed.sk) });
+            dynamo.upsertAppendList(c.allocator, "directApproval", val, group) catch |err| {
+                std.debug.print("upsertAppendList directApproval failed: {}\n", .{err});
+            };
+        }
+
+        // Create/update report
+        const assignment_sk = parsed.assignmentId;
+        if (try dynamo.getItemPkSk(schema.Assignment, c.allocator, "ASSIGNMENT", parsed.classId, assignment_sk)) |assignment| {
+            const class_name = blk: {
+                if (try dynamo.getItemPkSk(ClassBasic, c.allocator, "CLASS", user.email, parsed.classId)) |cls| {
+                    break :blk cls.name;
+                }
+                break :blk @as([]const u8, "none");
+            };
+            createAndSaveReport(c.allocator, user.email, parsed, assignment, class_name) catch |err| {
+                std.debug.print("createAndSaveReport failed: {}\n", .{err});
+            };
+        } else {
+            std.debug.print("approveSubmission: assignment not found classId={s} assignmentId={s}\n", .{ parsed.classId, assignment_sk });
+        }
     }
 
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });

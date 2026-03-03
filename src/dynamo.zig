@@ -170,6 +170,24 @@ pub fn getItemsOwnerPk(comptime T: type, allocator: std.mem.Allocator, prefix: [
     return result;
 }
 
+pub fn updateApprovals(allocator: std.mem.Allocator, email: []const u8) !void {
+    const cemail = try allocator.dupeZ(u8, email);
+    defer allocator.free(cemail);
+    const rc = c.update_approvals(cemail);
+    if (rc != 0) return error.DynamoError;
+}
+
+pub fn upsertAppendList(allocator: std.mem.Allocator, list_key: []const u8, value: []const u8, prefix: []const u8) !void {
+    const ckey = try allocator.dupeZ(u8, list_key);
+    defer allocator.free(ckey);
+    const cval = try allocator.dupeZ(u8, value);
+    defer allocator.free(cval);
+    const cpfx = try allocator.dupeZ(u8, prefix);
+    defer allocator.free(cpfx);
+    const rc = c.upsert_append_list(ckey, cval, cpfx);
+    if (rc != 0) return error.DynamoError;
+}
+
 pub fn updateCreditsUsed(allocator: std.mem.Allocator, email: []const u8) !void {
     const cemail = try allocator.dupeZ(u8, email);
     defer allocator.free(cemail);
