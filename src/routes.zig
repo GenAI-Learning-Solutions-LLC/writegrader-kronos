@@ -12,50 +12,42 @@ const sub_routes = @import("routes/submission_routes.zig");
 const assignment_routes = @import("routes/assignment_routes.zig");
 const grade_routes = @import("routes/grade_routes.zig");
 const sql = @import("sql.zig");
+
+/// primary route registration
 pub const routes = &[_]server.Route{
+
+    // assignment routes
     .{ .path = "/courses/:cid/assignments/:aid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = assignment_routes.getAssignment },
-
-    .{ .path = "/classes/:cid/assignments/:aid", .middleware = &[_]Callback{
-        authMiddleware,
-    }, .callback = assignment_routes.getAssignment },
-
     .{ .path = "/courses/:cid/assignments/:aid/submissions", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.getAssignmentSubmissions },
-
     .{ .path = "/assignments", .middleware = &[_]Callback{
         authMiddleware,
-    }, .callback = assignment_routes.getAllAssignments},
+    }, .callback = assignment_routes.getAllAssignments },
     .{ .path = "/assignments", .method = .PUT, .middleware = &[_]Callback{
         authMiddleware,
-    }, .callback = assignment_routes.saveAssignment},
+    }, .callback = assignment_routes.saveAssignment },
 
-
-
-
+    // submission routes
     .{ .path = "/submissions", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.getAllSubmissions },
-
     .{ .path = "/courses/:cid/assignments/:aid/submissions/:sid", .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.get_submission },
-
     .{ .path = "/submissions", .method = .PUT, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = sub_routes.saveSubmission },
 
+    // grade routes
     .{ .path = "/grade", .method = .POST, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = grade_routes.grade },
-
     .{ .path = "/grade/criterion", .method = .POST, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = grade_routes.gradeCriterion },
-
-    .{ .path = "/static/*", .callback = server.static },
 };
 
 pub fn index(c: *Context) !void {
