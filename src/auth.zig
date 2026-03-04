@@ -25,12 +25,11 @@ const indexquery = struct {
 
 /// Generates a cryptographically secure random string of `len` bytes, hex-encoded.
 /// Caller owns the returned slice.
-pub fn generateSecureToken(allocator: std.mem.Allocator, len: usize) ![]u8 {
-    const bytes = try allocator.alloc(u8, len);
-    defer allocator.free(bytes);
-    io.?.random(bytes);
-    const hex = try allocator.alloc(u8, len * 2);
-    return try std.fmt.hexToBytes(hex, hex);
+pub inline fn generateSecureToken() ![]const u8 {
+    var bytes: [256]u8 = undefined;
+    io.?.random(&bytes);
+    const out = std.fmt.bytesToHex(&bytes, .upper);
+    return out[0 .. out.len];
 }
 
 pub fn decodeAuth(T: type, allocator: std.mem.Allocator, cookie: []const u8, secret_key: ?[]const u8) !T {

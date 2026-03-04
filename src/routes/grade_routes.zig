@@ -22,11 +22,17 @@ pub fn grade(c: *Context) !void {
     const read_buf = try c.allocator.alloc(u8, 4096);
     const reader = try c.request.readerExpectContinue(read_buf);
     const body = try reader.readAlloc(c.allocator, content_length);
-
+   
     const partial = try std.json.parseFromSliceLeaky(GradeBodyPartial, c.allocator, body, .{
         .ignore_unknown_fields = true,
         .allocate = .alloc_always,
     });
+
+     const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{.body = body}) catch |err| {
+        std.log.err("user-{s} err-{any}\n", .{user.email, err});
+        try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
+        return;
+    };
 
     const rev_model = if (partial.revisionModel) |rm|
         try std.fmt.allocPrint(c.allocator, "\"{s}\"", .{rm})
@@ -35,10 +41,10 @@ pub fn grade(c: *Context) !void {
 
     const use_claude = if (dynamo.c.getenv("FORCE_CLAUDE") != null) "true" else "false";
     const user_json = c.get("user") orelse "{}";
-
+    const task_endpoint = dynamo.c.getenv("OWN_URL");
     const payload = try std.fmt.allocPrint(c.allocator,
-        \\{{"action":"gradeSubmission","pr":true,"req":{{"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
-    , .{ body, user_json, use_claude, rev_model });
+        \\{{"action":"gradeSubmission","pr":true,"req":{{"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}, "taskToken": {s}, callback: "{s}/tasks/update" }}
+    , .{ body, user_json, use_claude, rev_model, token, task_endpoint });
 
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
@@ -96,7 +102,11 @@ pub fn gradeCriterion(c: *Context) !void {
 
     const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
     const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
-    const token = try tasks.createTask(c.allocator, "grade_criterion", user.email, .{.criterion = criterion_json, .instructions = instructions_json});
+    const token = tasks.createTask(c.allocator, "grade_criterion", user.email, .{.criterion = partial.criterion, .instructions = partial.instructions}) catch |err| {
+        std.debug.print("{any}\n", .{err});
+        try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
+        return;
+    };
     const payload = try std.fmt.allocPrint(c.allocator,
         \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"instructions":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
     , .{ criterion_json, instructions_json, body, user_json, use_claude, rev_model });
@@ -114,10 +124,12 @@ pub fn gradeCriterion(c: *Context) !void {
 
     if (response == null) {
         try c.request.respond("", .{ .status = .internal_server_error });
-        try tasks.updateTask(c.allocator, token, "complete", 0, true, .{.criterion = criterion_json, .instructions = instructions_json, .response = response});
+        try tasks.updateTask(c.allocator, token, "error", 0, false, .{.criterion = criterion_json, .instructions = instructions_json, .response = response});
 
         return;
     }
+    try tasks.updateTask(c.allocator, token, "complete", 0, true, .{.criterion =  partial.criterion, .instructions = partial.instructions, .response = response});
+
     defer std.c.free(response);
 
     try c.request.respond(std.mem.span(response.?), .{ .extra_headers = headers });

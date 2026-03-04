@@ -15,9 +15,17 @@ const sql = @import("sql.zig");
 //     updated_at DATETIME DEFAULT (datetime('now', 'utc'))
 // );
 pub fn createTask(allocator: std.mem.Allocator, task: []const u8, email: []const u8, meta: anytype) ![]const u8 {
-    const token = try auth.generateSecureToken(allocator, 128);
-    try sql.exec("INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, token, email, meta });
-    return token;
+    const token = auth.generateSecureToken() catch |err| {
+        std.log.err("generateSecureToken failed: {}\n", .{err});
+        return err;
+    };
+    std.log.info("token {s}\n", .{token});
+
+    sql.exec("INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, token, email, meta }) catch |err| {
+        std.log.err("task insert failed: {}\n", .{err});
+        return err;
+    };
+    return try allocator.dupe(u8, token);
 }
 
 pub fn getTask(allocator: std.mem.Allocator, token: []const u8, email: []const u8) !?[]const u8 {
