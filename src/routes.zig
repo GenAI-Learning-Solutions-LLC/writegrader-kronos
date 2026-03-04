@@ -55,8 +55,14 @@ pub const routes = &[_]server.Route{
 
     // task routes
     .{ .path = "/tasks/update", .method = .POST, .callback = task_routes.updateTask },
+    .{ .path = "/tasks/grading-status", .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = task_routes.getGradingStatus },
 
     // grade routes
+    .{ .path = "grade", .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = task_routes.getGradingStatus },
     .{ .path = "/grade", .method = .POST, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = grade_routes.grade },

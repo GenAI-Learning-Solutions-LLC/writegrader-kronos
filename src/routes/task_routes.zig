@@ -2,7 +2,9 @@ const std = @import("std");
 
 const server = @import("../server.zig");
 const Context = server.Context;
+const dynamo = @import("../dynamo.zig");
 const tasks = @import("../tasks.zig");
+const sql = @import("../sql.zig");
 
 const UpdateBody = struct {
     taskToken: []const u8,
@@ -40,10 +42,23 @@ pub fn updateTask(c: *Context) !void {
     });
 
     const is_complete = std.mem.eql(u8, parsed.status, "complete");
-    if (!std.mem.eql(u8, parsed.status, "error")){
+    if (!std.mem.eql(u8, parsed.status, "error")) {
         tasks.updateTask(c.allocator, parsed.taskToken, parsed.status, parsed.step, is_complete, null) catch {};
     } else {
         tasks.markError(c.allocator, parsed.taskToken, null) catch {};
     }
     try server.sendJson(c.allocator, c.request, .{ .message = "ok" }, .{ .extra_headers = h });
+}
+
+pub fn getGradingStatus(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
+
+    const rows = sql.getAll(
+        c.allocator,
+        "SELECT status, step, meta_data FROM task_queue WHERE user_email = ? AND task = 'grade_submission' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1",
+        .{user.email},
+    ) catch null;
+
+    try server.sendJson(c.allocator, c.request , rows, .{ .extra_headers = headers });
 }
