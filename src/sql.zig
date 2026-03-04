@@ -108,7 +108,7 @@ fn bindArgs(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt, args: anytype)
                 }
             },
             .@"struct" => {
-                const json = try try std.json.Stringify.valueAlloc(allocator, val, .{ .emit_null_optional_fields = false });
+                const json = try std.json.Stringify.valueAlloc(allocator, val, .{ .emit_null_optional_fields = false });
                 defer allocator.free(json);
                 _ = c.sqlite3_bind_text(stmt, @intCast(i + 1), json.ptr, @intCast(json.len), c.SQLITE_TRANSIENT);
             },

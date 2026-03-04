@@ -16,7 +16,7 @@ const sql = @import("sql.zig");
 // );
 pub fn createTask(allocator: std.mem.Allocator, task: []const u8, email: []const u8, meta: anytype) ![]const u8 {
     const token = try auth.generateSecureToken(allocator, 128);
-    try sql.exec(allocator, "INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, email, meta});
+    try sql.exec( "INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, email, meta});
     return token;
 }
 

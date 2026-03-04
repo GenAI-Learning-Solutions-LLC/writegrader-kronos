@@ -70,7 +70,6 @@ const GradeCritBodyPartial = struct {
 };
 pub fn gradeCriterion(c: *Context) !void {
     const user = try dynamo.getUser(c);
-    _ = user;
     const headers = try server.makeHeaders(c.allocator, c.request);
 
     const content_length = c.request.head.content_length orelse {
@@ -97,7 +96,7 @@ pub fn gradeCriterion(c: *Context) !void {
 
     const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
     const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
-    try tasks.createTask(c.allocator, "grade_criterion", user.email, .{.criterion = criterion_json, .instructions = instructions_json});
+    const token = try tasks.createTask(c.allocator, "grade_criterion", user.email, .{.criterion = criterion_json, .instructions = instructions_json});
     const payload = try std.fmt.allocPrint(c.allocator,
         \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"instructions":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
     , .{ criterion_json, instructions_json, body, user_json, use_claude, rev_model });
@@ -115,6 +114,8 @@ pub fn gradeCriterion(c: *Context) !void {
 
     if (response == null) {
         try c.request.respond("", .{ .status = .internal_server_error });
+        try tasks.updateTask(c.allocator, token, "complete", 0, true, .{.criterion = criterion_json, .instructions = instructions_json, .response = response});
+
         return;
     }
     defer std.c.free(response);
