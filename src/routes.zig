@@ -13,6 +13,7 @@ const assignment_routes = @import("routes/assignment_routes.zig");
 const report_routes = @import("routes/report_routes.zig");
 const grade_routes = @import("routes/grade_routes.zig");
 const sql = @import("sql.zig");
+pub var secret: ?[]const u8 = null; 
 
 /// primary route registration
 pub const routes = &[_]server.Route{
@@ -74,7 +75,7 @@ fn authMiddleware(c: *Context) !void {
         try c.request.respond("", .{ .status = .forbidden, .keep_alive = false });
         return error.Client;
     }
-    const decoded = try auth.decodeAuth(c.allocator, token.?);
+    const decoded = try auth.decodeAuth(auth.AuthBody, c.allocator, token.?, secret);
 
     const cached = sql.getAll(c.allocator, "SELECT data FROM fetch_cache WHERE data_type = 'user' AND name = ? AND updated_at > datetime('now', '-5 minutes') LIMIT 1", .{decoded.user}) catch null;
     if (cached) |rows| {

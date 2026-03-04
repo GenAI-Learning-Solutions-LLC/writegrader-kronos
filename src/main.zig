@@ -2,7 +2,7 @@ const std = @import("std");
 const Config = @import("config.zig");
 const server = @import("server.zig");
 const r = @import("routes.zig");
-
+const dynamo = @import("dynamo.zig");
 
 pub fn main(init: std.process.Init) !void {
   
@@ -17,7 +17,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     var settings = try Config.init(init.io, "config.json", allocator);
     defer settings.deinit(allocator);
-   
+    r.secret = std.mem.span(dynamo.c.getenv("JWT_SECRET"));   
     // initialize
     var routes = std.ArrayList(server.Route){};
     try routes.appendSlice(allocator, r.routes);

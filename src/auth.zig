@@ -31,14 +31,11 @@ const indexquery = struct {
 };
 
 
-pub fn decodeAuth(allocator: std.mem.Allocator, cookie: []const u8) !AuthBody {
-        std.debug.print("{d}\n", .{35});
-
-    const secret = dynamo.c.getenv("JWT_SECRET");
-    if (secret == null){
+pub fn decodeAuth(T: type, allocator: std.mem.Allocator, cookie: []const u8, secret_key: ?[]const u8) !T {
+    if (secret_key == null){
         return error.NoSecret;
-
     }
+    const secret = secret_key.?;
     // Split JWT into parts
     var parts = std.mem.splitScalar(u8, cookie, '.');
     const header_b64 = parts.next() orelse return error.InvalidJWT;
@@ -58,7 +55,7 @@ pub fn decodeAuth(allocator: std.mem.Allocator, cookie: []const u8) !AuthBody {
     
     // Calculate expected signature
     var expected_sig: [crypto.auth.hmac.sha2.HmacSha256.mac_length]u8 = undefined;
-    crypto.auth.hmac.sha2.HmacSha256.create(&expected_sig, message, std.mem.span(secret));
+    crypto.auth.hmac.sha2.HmacSha256.create(&expected_sig, message, secret);
     
     if (!std.mem.eql(u8, sig_decoded, &expected_sig)) {
         return error.InvalidSignature;
@@ -72,7 +69,7 @@ pub fn decodeAuth(allocator: std.mem.Allocator, cookie: []const u8) !AuthBody {
     try decoder.decode(decoded, payload_b64);
     server.debugPrint("debug: {s}\n", .{decoded});
     // Parse JSON
-    const parsed = try std.json.parseFromSlice(AuthBody, allocator, decoded, .{
+    const parsed = try std.json.parseFromSlice(T, allocator, decoded, .{
         .ignore_unknown_fields = true,
         .allocate = .alloc_always,
     });

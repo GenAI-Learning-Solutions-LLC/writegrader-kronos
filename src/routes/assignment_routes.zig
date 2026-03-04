@@ -129,7 +129,7 @@ pub fn saveAssignment(c: *Context) !void {
 }
 
 pub fn invalidateAssignmentCache(user_email: []const u8) void {
-    sql.exec("DELETE FROM fetch_cache WHERE data_type IN ('assignments', 'assignment') AND user = ?", .{user_email}) catch |err| {
+    sql.exec("DELETE FROM fetch_cache WHERE data_type IN ('assignments', 'assignment') AND user_email = ?", .{user_email}) catch |err| {
         std.debug.print("cache invalidate failed: {}\n", .{err});
     };
 }
