@@ -46,3 +46,20 @@ pub fn updateTask(allocator: std.mem.Allocator, token: []const u8, status: []con
         try sql.exec("UPDATE task_queue SET status = ?, step = ?, is_complete = ? WHERE token = ?", .{ status, step, is_complete, token });
     }
 }
+
+
+
+pub fn markError(allocator: std.mem.Allocator, token: []const u8, meta: anytype) !void {
+    const has_meta = switch (@typeInfo(@TypeOf(meta))) {
+        .null => false,
+        .optional => meta != null,
+        else => true,
+    };
+    if (has_meta) {
+        const md = try std.json.Stringify.valueAlloc(allocator, meta, .{ .emit_null_optional_fields = false });
+        defer allocator.free(md);
+        try sql.exec("UPDATE task_queue SET status = 'error', meta_data = ? WHERE token = ?", .{md, token });
+    } else {
+        try sql.exec("UPDATE task_queue SET status = 'error' WHERE token = ?", .{token });
+    }
+}

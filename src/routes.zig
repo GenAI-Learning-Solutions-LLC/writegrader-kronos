@@ -12,6 +12,7 @@ const sub_routes = @import("routes/submission_routes.zig");
 const assignment_routes = @import("routes/assignment_routes.zig");
 const report_routes = @import("routes/report_routes.zig");
 const grade_routes = @import("routes/grade_routes.zig");
+const task_routes = @import("routes/task_routes.zig");
 const sql = @import("sql.zig");
 pub var secret: ?[]const u8 = null; 
 
@@ -51,6 +52,9 @@ pub const routes = &[_]server.Route{
     }, .callback = report_routes.approveSubmission },
 
 
+
+    // task routes
+    .{ .path = "/tasks/update", .method = .POST, .callback = task_routes.updateTask },
 
     // grade routes
     .{ .path = "/grade", .method = .POST, .middleware = &[_]Callback{
