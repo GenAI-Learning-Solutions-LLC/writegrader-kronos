@@ -91,19 +91,20 @@ pub fn gradeCriterion(c: *Context) !void {
         try std.fmt.allocPrint(c.allocator, "\"{s}\"", .{rm})
     else
         "null";
-
+    
     const use_claude = if (dynamo.c.getenv("FORCE_CLAUDE") != null) "true" else "false";
     const user_json = c.get("user") orelse "{}";
 
     const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
     const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
-    
+    try tasks.createTask(c.allocator, "grade_criterion", user.email, .{.criterion = criterion_json, .instructions = instructions_json});
     const payload = try std.fmt.allocPrint(c.allocator,
         \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"instructions":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
     , .{ criterion_json, instructions_json, body, user_json, use_claude, rev_model });
+    
+    
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
-
     const response: ?[*:0]u8 = if (dynamo.c.getenv("LOCAL_PARSER") != null) blk: {
         break :blk dynamo.c.http_post_sync("http://localhost:3002", cpayload);
     } else blk: {
