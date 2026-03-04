@@ -87,7 +87,7 @@ pub fn getAllAssignments(c: *Context) !void {
     try list.append(c.allocator, ']');
     const json_body = try list.toOwnedSlice(c.allocator);
 
-    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('assignments', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
+    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('assignments', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
         server.debugPrint("cache write failed: {}\n", .{err});
     };
 

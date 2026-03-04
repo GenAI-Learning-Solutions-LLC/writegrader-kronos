@@ -95,7 +95,7 @@ fn authMiddleware(c: *Context) !void {
     defer std.c.free(result);
     const slice = std.mem.span(result);
 
-    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user, name, data) VALUES ('user', ?, ?,?)", .{ decoded.user, decoded.user, slice }) catch |err| {
+    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('user', ?, ?,?)", .{ decoded.user, decoded.user, slice }) catch |err| {
         try c.request.respond("", .{ .status = .internal_server_error, .keep_alive = false });
         return err;
     };
