@@ -6,9 +6,6 @@ const builtin = @import("builtin");
 const crypto = std.crypto;
 const dynamo = @import("dynamo.zig");
 
-
-
-
 pub const AuthBody = struct {
     exp: u64,
     iat: u64,
@@ -17,19 +14,25 @@ pub const AuthBody = struct {
     value: []const u8,
 };
 
-
 pub const execresult = struct {
     stdout: []const u8,
     stderr: []const u8,
 };
 
-
-
-
 const indexquery = struct {
     value: ?[]const u8,
 };
 
+/// Generates a cryptographically secure random string of `len` bytes, hex-encoded.
+/// Caller owns the returned slice.
+pub fn generateSecureToken(allocator: std.mem.Allocator, len: usize) ![]u8 {
+    const bytes = try allocator.alloc(u8, len);
+    defer allocator.free(bytes);
+    crypto.random.bytes(bytes);
+    const hex = try allocator.alloc(u8, len * 2);
+    _ = std.fmt.bufPrint(hex, "{}", .{std.fmt.fmtSliceHexLower(bytes)}) catch unreachable;
+    return hex;
+}
 
 pub fn decodeAuth(T: type, allocator: std.mem.Allocator, cookie: []const u8, secret_key: ?[]const u8) !T {
     if (secret_key == null){

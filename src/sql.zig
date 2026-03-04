@@ -118,6 +118,9 @@ pub fn exec(sql: []const u8, args: anytype) !void {
     }
 }
 
+
+
+
 pub fn getAll(allocator: std.mem.Allocator, sql: []const u8, args: anytype) ![][]const u8 {
     try initThreadLocal();
 

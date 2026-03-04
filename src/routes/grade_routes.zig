@@ -4,7 +4,7 @@ const server = @import("../server.zig");
 const Context = server.Context;
 const dynamo = @import("../dynamo.zig");
 const sub_routes = @import("submission_routes.zig");
-
+const tasks = @import("../tasks.zig");
 
 const GradeBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
@@ -97,7 +97,7 @@ pub fn gradeCriterion(c: *Context) !void {
 
     const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
     const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
-
+    
     const payload = try std.fmt.allocPrint(c.allocator,
         \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"instructions":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
     , .{ criterion_json, instructions_json, body, user_json, use_claude, rev_model });
