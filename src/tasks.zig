@@ -16,19 +16,24 @@ const sql = @import("sql.zig");
 // );
 pub fn createTask(allocator: std.mem.Allocator, task: []const u8, email: []const u8, meta: anytype) ![]const u8 {
     const token = try auth.generateSecureToken(allocator, 128);
-    try sql.exec( "INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, email, meta});
+    try sql.exec("INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, token, email, meta });
     return token;
 }
 
-pub fn getTask(allocator: std.mem.Allocator, token: []const u8, email: []const u8) !void {
-    try sql.getOne(allocator, "SELECT * FROM task_queue WHERE token = ? AND user_email = ?", .{ token, email});
+pub fn getTask(allocator: std.mem.Allocator, token: []const u8, email: []const u8) !?[]const u8 {
+    return sql.getOne(allocator, "SELECT * FROM task_queue WHERE token = ? AND user_email = ?", .{ token, email });
 }
 
 pub fn updateTask(allocator: std.mem.Allocator, token: []const u8, status: []const u8, step: usize, is_complete: bool, meta: anytype) !void {
-    const md = try std.json.Stringify.valueAlloc(allocator, meta, .{ .emit_null_optional_fields = false });
-    defer allocator.free(md);
-    if (meta != null){
-        try sql.exec("UPDATE task_queue SET status = ?, step = ?, is_complete = ?, meta_data = ? WHERE token = ?", .{ status, step, md, is_complete, token });
+    const has_meta = switch (@typeInfo(@TypeOf(meta))) {
+        .null => false,
+        .optional => meta != null,
+        else => true,
+    };
+    if (has_meta) {
+        const md = try std.json.Stringify.valueAlloc(allocator, meta, .{ .emit_null_optional_fields = false });
+        defer allocator.free(md);
+        try sql.exec("UPDATE task_queue SET status = ?, step = ?, is_complete = ?, meta_data = ? WHERE token = ?", .{ status, step, is_complete, md, token });
     } else {
         try sql.exec("UPDATE task_queue SET status = ?, step = ?, is_complete = ? WHERE token = ?", .{ status, step, is_complete, token });
     }
