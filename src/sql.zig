@@ -151,8 +151,6 @@ fn serializeRow(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt) ![]const u
 }
 
 pub fn exec(sql: []const u8, args: anytype) !void {
-    var buf: [4096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
     try initThreadLocal();
     if (thread_db == null) {
         std.debug.print("thread_db is null after initThreadLocal\n", .{});
@@ -160,7 +158,7 @@ pub fn exec(sql: []const u8, args: anytype) !void {
     }
     const stmt = try prepareStmt(sql);
     defer _ = c.sqlite3_finalize(stmt);
-    try bindArgs(fba.allocator(), stmt, args);
+    try bindArgs(std.heap.c_allocator, stmt, args);
     const step_rc = c.sqlite3_step(stmt);
     if (step_rc != c.SQLITE_DONE and step_rc != c.SQLITE_ROW) {
         std.debug.print("sqlite3_step error: {s}\n", .{std.mem.span(c.sqlite3_errmsg(thread_db.?))});

@@ -43,7 +43,7 @@ pub fn grade(c: *Context) !void {
     const user_json = c.get("user") orelse "{}";
     const task_endpoint = dynamo.c.getenv("OWN_URL");
     const payload = try std.fmt.allocPrint(c.allocator,
-        \\{{"action":"gradeSubmission","pr":true,"req":{{"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}, "taskToken": {s}, callback: "{s}/tasks/update" }}
+        \\{{"action":"gradeSubmission","pr":true,"req":{{"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s},"taskToken":"{s}","callback":"{s}/tasks/update"}}
     , .{ body, user_json, use_claude, rev_model, token, task_endpoint });
 
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
