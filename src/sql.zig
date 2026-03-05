@@ -86,13 +86,6 @@ fn prepareStmt(sql: []const u8) !?*c.sqlite3_stmt {
     return stmt;
 }
 
-// SQLITE_TRANSIENT = ((sqlite3_destructor_type)-1) in C.
-// Zig's cimport can't evaluate this comptime due to pointer alignment checks.
-// Compute it at runtime with safety disabled to bypass the check.
-fn sqliteTransient() c.sqlite3_destructor_type {
-    @setRuntimeSafety(false);
-    return @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
-}
 
 fn bindArgs(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt, args: anytype) !void {
     const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
