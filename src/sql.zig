@@ -86,6 +86,14 @@ fn prepareStmt(sql: []const u8) !?*c.sqlite3_stmt {
     return stmt;
 }
 
+// SQLITE_TRANSIENT = ((sqlite3_destructor_type)-1) in C.
+// Zig's cimport can't evaluate this comptime due to pointer alignment checks.
+// Compute it at runtime with safety disabled to bypass the check.
+fn sqliteTransient() c.sqlite3_destructor_type {
+    @setRuntimeSafety(false);
+    return @ptrFromInt(@as(usize, @bitCast(@as(isize, -1))));
+}
+
 fn bindArgs(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt, args: anytype) !void {
     const fields = @typeInfo(@TypeOf(args)).@"struct".fields;
     inline for (fields, 0..) |field, i| {
@@ -110,7 +118,7 @@ fn bindArgs(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt, args: anytype)
             .@"struct" => {
                 const json = try std.json.Stringify.valueAlloc(allocator, val, .{ .emit_null_optional_fields = false });
                 defer allocator.free(json);
-                _ = c.sqlite3_bind_text(stmt, @intCast(i + 1), json.ptr, @intCast(json.len), c.SQLITE_TRANSIENT);
+                _ = c.sqlite3_bind_text(stmt, @intCast(i + 1), json.ptr, @intCast(json.len), sqliteTransient());
             },
             else => @compileError("unsupported bind type: " ++ @typeName(@TypeOf(val))),
         }
