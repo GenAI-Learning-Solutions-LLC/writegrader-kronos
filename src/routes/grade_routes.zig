@@ -5,9 +5,11 @@ const Context = server.Context;
 const dynamo = @import("../dynamo.zig");
 const sub_routes = @import("submission_routes.zig");
 const tasks = @import("../tasks.zig");
+const sql = @import("../sql.zig");
 
 const GradeBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
+    sk: []const u8,
 };
 
 pub fn grade(c: *Context) !void {
@@ -27,7 +29,16 @@ pub fn grade(c: *Context) !void {
         .ignore_unknown_fields = true,
         .allocate = .alloc_always,
     });
-
+    const current_task = sql.getOne(
+        c.allocator,
+        "SELECT status, json_extract(json_extract(meta_data, '$.body'), '$.sk') as sk, json_extract(json_extract(meta_data, '$.body'), '$.pk') as pk, step, 5 steps FROM task_queue WHERE user_email = ? AND task = 'grade_submission' AND is_complete = 0 AND json_extract(json_extract(meta_data, '$.body'), '$.sk') = ? AND updated_at >= datetime('now', '-1 minutes', 'utc')",
+        .{ user.email, partial.sk },
+    ) catch null;
+    if (current_task != null) {
+        std.log.info("debouncing grade attempts\n", .{});
+        try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
+        return;
+    }
      const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{.body = body}) catch |err| {
         std.log.err("user-{s} err-{any}\n", .{user.email, err});
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });

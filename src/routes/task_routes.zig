@@ -56,9 +56,11 @@ pub fn getGradingStatus(c: *Context) !void {
 
     const rows = sql.getAll(
         c.allocator,
-        "SELECT status, step, meta_data FROM task_queue WHERE user_email = ? AND task = 'grade_submission' AND is_complete = 0 ORDER BY created_at DESC LIMIT 1",
+        "SELECT status, updated_at || 'Z', json_extract(json_extract(meta_data, '$.body'), '$.sk') as sk, json_extract(json_extract(meta_data, '$.body'), '$.pk') as pk, step, 5 steps FROM task_queue WHERE user_email = ? AND task = 'grade_submission' AND is_complete = 0 AND updated_at >= datetime('now', '-2 minutes', 'utc') ",
         .{user.email},
     ) catch null;
-
+    if (rows != null){
+        server.debugPrint("len: {d}", .{rows.?.len});
+    }
     try server.sendJson(c.allocator, c.request , rows, .{ .extra_headers = headers });
 }
