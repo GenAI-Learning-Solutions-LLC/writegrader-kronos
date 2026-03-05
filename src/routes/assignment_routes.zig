@@ -19,6 +19,7 @@ pub fn getAssignment(c: *Context) !void {
     const params = try server.Parser.params(AssignmentParams, c);
     server.debugPrint("\n\n\n-------route: {s}", .{c.request.head.target});
     const user = dynamo.getUser(c) catch {
+        std.log.warn("no auth\n", .{});
         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
         return;
     };
@@ -36,6 +37,7 @@ pub fn getAssignment(c: *Context) !void {
         return;
     };
     if (!std.mem.eql(u8, assignment.OWNER, user.email)) {
+        std.log.warn("403\n", .{});
         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
         return;
     }
@@ -112,8 +114,13 @@ pub fn saveAssignment(c: *Context) !void {
     };
     parsed.updatedAt = utils.stampUTC(c.allocator) catch parsed.updatedAt;
 
-    const has_access = utils.checkAssignmentAccess(c.allocator, user.email, parsed.pk, parsed.sk) catch false;
+    const has_access = utils.checkAssignmentAccess(c.allocator, user.email, parsed.pk, parsed.sk) catch |err| blk: {
+        std.log.warn("403 {any}\n", .{err});
+
+        break :blk false;
+    };
     if (!has_access) {
+        std.log.warn("403 {s} {s}\n", .{ parsed.OWNER, user.email });
         try c.request.respond("", .{ .status = .forbidden, .extra_headers = headers });
         return;
     }

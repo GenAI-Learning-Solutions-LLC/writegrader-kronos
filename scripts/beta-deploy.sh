@@ -23,7 +23,7 @@ rsync -avz \
 echo "Copying to beta dir..."
 ssh -i "$KEY" "$HOST" "doas rsync -a --exclude='run.sh' --exclude='config.json' --exclude='.env' --exclude='*.db' --exclude='*.db-shm' --exclude='*.db-wal' $STAGING/ $REMOTE_DIR/"
 
-echo "Building on server..."
-ssh -i "$KEY" "$HOST" "cd $REMOTE_DIR && doas -u writegrader zig build -Doptimize=ReleaseFast"
+#echo "Building on server..."
+#ssh -i "$KEY" "$HOST" "cd $REMOTE_DIR && doas -u writegrader zig build -Doptimize=ReleaseFast"
 
 echo "Deploy complete."

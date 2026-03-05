@@ -18,7 +18,10 @@ pub fn buildJsonArray(allocator: std.mem.Allocator, items: []const []const u8) !
     pos += 1;
     var first = true;
     for (items) |item| {
-        if (!first) { buf[pos] = ','; pos += 1; }
+        if (!first) {
+            buf[pos] = ',';
+            pos += 1;
+        }
         @memcpy(buf[pos..][0..item.len], item);
         pos += item.len;
         first = false;
@@ -27,8 +30,7 @@ pub fn buildJsonArray(allocator: std.mem.Allocator, items: []const []const u8) !
     return buf[0 .. pos + 1];
 }
 
-pub fn stampUTC(allocator: std.mem.Allocator) ![]const u8 { 
-
+pub fn stampUTC(allocator: std.mem.Allocator) ![]const u8 {
     var ts_buf: [32]u8 = undefined;
     dynamo.c.iso_timestamp(&ts_buf, ts_buf.len);
     const ts = try allocator.dupe(u8, std.mem.sliceTo(&ts_buf, 0));
@@ -40,13 +42,9 @@ const AssignmentAccess = struct {
     sharedWith: [][]const u8 = &.{},
 };
 
-
 pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u8, pk: []const u8, sk: []const u8) !bool {
-
-
     const class_id = if (std.mem.indexOf(u8, pk, "#")) |idx| pk[idx + 1 ..] else pk;
     const assignment_id = if (std.mem.indexOf(u8, sk, "#")) |idx| sk[idx + 1 ..] else sk;
-
 
     if (class_id.len == 0 or assignment_id.len == 0) return false;
 
@@ -72,8 +70,10 @@ pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u
     const csk = try std.heap.c_allocator.dupeZ(u8, assignment_id);
     defer std.heap.c_allocator.free(csk);
 
-    const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk);
-    if (result == null) return false;
+    const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk) orelse {
+        server.debugPrint("no assignment found anyone can write \n", .{});
+        return true;
+    };
     defer std.c.free(result);
     const slice = std.mem.span(result);
 
@@ -89,17 +89,15 @@ pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u
     return false;
 }
 
-
-
-pub fn isItemNew(allocator: std.mem.Allocator, user_email: []const u8, cache_type:[]const u8, pk: []const u8, sk: []const u8) !bool {
+pub fn isItemNew(allocator: std.mem.Allocator, user_email: []const u8, cache_type: []const u8, pk: []const u8, sk: []const u8) !bool {
 
     // 1. Check item cache (ignore staleness)
-    const cached = sql.getAll(allocator, "SELECT data FROM fetch_cache WHERE data_type = '?' AND name = ? LIMIT 1", .{cache_type, user_email}) catch null;
+    const cached = sql.getAll(allocator, "SELECT data FROM fetch_cache WHERE data_type = '?' AND name = ? LIMIT 1", .{ cache_type, user_email }) catch null;
     if (cached) |rows| {
         if (rows.len > 0 and rows[0].len > 11) {
             const data = rows[0][9 .. rows[0].len - 2];
             if (std.mem.containsAtLeast(u8, data, 1, sk)) {
-                std.debug.print("{s} {s} found in cache, is existing\n", .{cache_type, sk});
+                std.debug.print("{s} {s} found in cache, is existing\n", .{ cache_type, sk });
                 return false;
             }
         }
@@ -117,10 +115,10 @@ pub fn isItemNew(allocator: std.mem.Allocator, user_email: []const u8, cache_typ
     const result = dynamo.c.get_item_pk_sk(cpx, cpk, csk);
     if (result != null) {
         std.c.free(result);
-        std.debug.print("{s} {s} found in dynamo, is existing\n", .{cache_type, sk});
+        std.debug.print("{s} {s} found in dynamo, is existing\n", .{ cache_type, sk });
         return false;
     }
 
-    std.debug.print("{s} {s} not found in cache or dynamo, is new\n", .{cache_type, sk});
+    std.debug.print("{s} {s} not found in cache or dynamo, is new\n", .{ cache_type, sk });
     return true;
 }
