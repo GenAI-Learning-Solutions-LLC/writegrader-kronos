@@ -29,6 +29,7 @@ while true; do
         fi
     done
     if [ "$changed" -eq 1 ]; then
+        clear
         stop_server
         now=$(date +%s)
         start_server

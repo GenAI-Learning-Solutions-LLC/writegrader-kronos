@@ -21,7 +21,7 @@ pub fn createTask(allocator: std.mem.Allocator, task: []const u8, email: []const
     };
     std.log.info("token {s}\n", .{token});
 
-    sql.exec("INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, token, email, meta }) catch |err| {
+    sql.exec(allocator, "INSERT INTO task_queue (task, token, user_email, meta_data) VALUES (?, ?, ?, ?)", .{ task, token, email, meta }) catch |err| {
         std.log.err("task insert failed: {}\n", .{err});
         return err;
     };
@@ -41,9 +41,9 @@ pub fn updateTask(allocator: std.mem.Allocator, token: []const u8, status: []con
     if (has_meta) {
         const md = try std.json.Stringify.valueAlloc(allocator, meta, .{ .emit_null_optional_fields = false });
         defer allocator.free(md);
-        try sql.exec("UPDATE task_queue SET status = ?, step = ?, is_complete = ?, meta_data = ? WHERE token = ?", .{ status, step, is_complete, md, token });
+        try sql.exec(allocator, "UPDATE task_queue SET status = ?, step = ?, is_complete = ?, meta_data = ? WHERE token = ?", .{ status, step, is_complete, md, token });
     } else {
-        try sql.exec("UPDATE task_queue SET status = ?, step = ?, is_complete = ? WHERE token = ?", .{ status, step, is_complete, token });
+        try sql.exec(allocator, "UPDATE task_queue SET status = ?, step = ?, is_complete = ? WHERE token = ?", .{ status, step, is_complete, token });
     }
 }
 
@@ -58,8 +58,8 @@ pub fn markError(allocator: std.mem.Allocator, token: []const u8, meta: anytype)
     if (has_meta) {
         const md = try std.json.Stringify.valueAlloc(allocator, meta, .{ .emit_null_optional_fields = false });
         defer allocator.free(md);
-        try sql.exec("UPDATE task_queue SET status = 'error', meta_data = ? WHERE token = ?", .{md, token });
+        try sql.exec(allocator, "UPDATE task_queue SET status = 'error', meta_data = ? WHERE token = ?", .{md, token });
     } else {
-        try sql.exec("UPDATE task_queue SET status = 'error' WHERE token = ?", .{token });
+        try sql.exec(allocator, "UPDATE task_queue SET status = 'error' WHERE token = ?", .{token });
     }
 }

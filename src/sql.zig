@@ -117,8 +117,7 @@ fn bindArgs(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt, args: anytype)
             },
             .@"struct" => {
                 const json = try std.json.Stringify.valueAlloc(allocator, val, .{ .emit_null_optional_fields = false });
-                defer allocator.free(json);
-                _ = c.sqlite3_bind_text(stmt, @intCast(i + 1), json.ptr, @intCast(json.len), sqliteTransient());
+                _ = c.sqlite3_bind_text(stmt, @intCast(i + 1), json.ptr, @intCast(json.len),  c.SQLITE_STATIC);
             },
             else => @compileError("unsupported bind type: " ++ @typeName(@TypeOf(val))),
         }
@@ -158,7 +157,7 @@ fn serializeRow(allocator: std.mem.Allocator, stmt: ?*c.sqlite3_stmt) ![]const u
     return try row.toOwnedSlice(allocator);
 }
 
-pub fn exec(sql: []const u8, args: anytype) !void {
+pub fn exec(allocator: std.mem.Allocator, sql: []const u8, args: anytype) !void {
     try initThreadLocal();
     if (thread_db == null) {
         std.debug.print("thread_db is null after initThreadLocal\n", .{});
@@ -166,7 +165,7 @@ pub fn exec(sql: []const u8, args: anytype) !void {
     }
     const stmt = try prepareStmt(sql);
     defer _ = c.sqlite3_finalize(stmt);
-    try bindArgs(std.heap.c_allocator, stmt, args);
+    try bindArgs(allocator, stmt, args);
     const step_rc = c.sqlite3_step(stmt);
     if (step_rc != c.SQLITE_DONE and step_rc != c.SQLITE_ROW) {
         std.debug.print("sqlite3_step error: {s}\n", .{std.mem.span(c.sqlite3_errmsg(thread_db.?))});

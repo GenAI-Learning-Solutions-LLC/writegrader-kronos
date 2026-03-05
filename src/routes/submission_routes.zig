@@ -104,7 +104,7 @@ pub fn getAllSubmissions(c: *Context) !void {
     }
     json_body[pos] = ']';
 
-    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('submissions', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
+    sql.exec(c.allocator, "INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('submissions', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
         server.debugPrint("cache write failed: {}\n", .{err});
     };
 
@@ -139,7 +139,7 @@ pub fn getUnapprovedSubmissions(c: *Context) !void {
     }
     const json_body = try std.json.Stringify.valueAlloc(c.allocator, unapproved, .{});
 
-    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('submissions_unapproved', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
+    sql.exec(c.allocator, "INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('submissions_unapproved', ?, ?, ?)", .{ user.email, user.email, json_body }) catch |err| {
         server.debugPrint("cache write failed: {}\n", .{err});
     };
 
@@ -173,7 +173,7 @@ pub fn get_submission(c: *Context) !void {
 }
 
 pub fn invalidateSubmissionCache(user_email: []const u8) void {
-    sql.exec("DELETE FROM fetch_cache WHERE data_type IN ('submissions', 'submissions_unapproved') AND user_email = ?", .{user_email}) catch |err| {
+    sql.exec(std.heap.c_allocator,"DELETE FROM fetch_cache WHERE data_type IN ('submissions', 'submissions_unapproved') AND user_email = ?", .{user_email}) catch |err| {
         std.debug.print("cache invalidate failed: {}\n", .{err});
     };
 }

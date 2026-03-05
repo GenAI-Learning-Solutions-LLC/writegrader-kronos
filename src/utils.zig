@@ -77,7 +77,7 @@ pub fn checkAssignmentAccess(allocator: std.mem.Allocator, user_email: []const u
     defer std.c.free(result);
     const slice = std.mem.span(result);
 
-    sql.exec("INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('assignment', ?, ?, ?)", .{ cache_key, cache_key, slice }) catch |err| {
+    sql.exec(allocator, "INSERT OR REPLACE INTO fetch_cache (data_type, user_email, name, data) VALUES ('assignment', ?, ?, ?)", .{ cache_key, cache_key, slice }) catch |err| {
         std.debug.print("assignment cache write failed: {}\n", .{err});
     };
 
