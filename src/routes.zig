@@ -69,6 +69,9 @@ pub const routes = &[_]server.Route{
     .{ .path = "/grade/criterion", .method = .POST, .middleware = &[_]Callback{
         authMiddleware,
     }, .callback = grade_routes.gradeCriterion },
+    .{ .path = "/grade/optimize", .method = .POST, .middleware = &[_]Callback{
+        authMiddleware,
+    }, .callback = grade_routes.optimize },
 };
 
 pub fn index(c: *Context) !void {

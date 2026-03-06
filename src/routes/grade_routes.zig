@@ -7,6 +7,79 @@ const sub_routes = @import("submission_routes.zig");
 const tasks = @import("../tasks.zig");
 const sql = @import("../sql.zig");
 
+
+
+
+
+const OptimizeBody = struct {
+    sk: []const u8,
+    pk: []const u8,
+};
+
+const OptimizeTask = struct {
+    action: []const u8 = "optimizeCriterion",
+    sk: []const u8,
+    pk: []const u8,
+    criterion: []const u8,
+    callback: []const u8,
+    callback_token: []const u8,
+};
+
+pub fn optimize(c: *Context) !void {
+    const user = try dynamo.getUser(c);
+    const headers = try server.makeHeaders(c.allocator, c.request);
+    const parsed = server.Parser.json(OptimizeBody, c.allocator, c.request) catch |err| {
+        std.log.err("{s} {s} {any}\n", .{user.email, c.request.head.target, err});
+        try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
+        return;
+    };
+    
+    const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{.body = parsed}) catch |err| {
+        std.log.err("user-{s} err-{any}\n", .{user.email, err});
+        try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
+        return;
+    };
+
+    const task_endpoint = std.mem.span(dynamo.c.getenv("OWN_URL"));
+    const task_obj: OptimizeTask = .{
+        .pk = dynamo.stringStem(parsed.pk),
+        .sk = dynamo.stringStem(parsed.sk),
+        .criterion = "Word Variability",
+        .callback = task_endpoint,
+        .callback_token = token,
+
+    }; 
+    const payload = try std.json.Stringify.valueAlloc(c.allocator, task_obj, .{ .emit_null_optional_fields = false });
+    const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
+    defer std.heap.c_allocator.free(cpayload);
+
+    const rc = if (dynamo.c.getenv("LOCAL_PARSER") != null) blk: {
+        break :blk dynamo.c.http_post("http://localhost:3002", cpayload);
+    } else blk: {
+        const fn_env = dynamo.c.getenv("PARSER");
+        const cname: [*c]const u8 = if (fn_env != null) fn_env else "ai-parser-AiParserLambda8BD704BF-vi2FDv4rLltq";
+        break :blk dynamo.c.invoke_lambda(cname, cpayload);
+    };
+
+    if (rc != 0) {
+        try c.request.respond("", .{ .status = .internal_server_error });
+        return;
+    }
+
+    sub_routes.invalidateSubmissionCache(user.email);
+    try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
+}
+
+
+
+
+
+
+
+
+
+
+
 const GradeBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
     sk: []const u8,
@@ -79,6 +152,12 @@ pub fn grade(c: *Context) !void {
 
 
 
+
+
+
+
+
+
 const GradeCritBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
     instructions: ?[]const u8 = null,
@@ -145,6 +224,13 @@ pub fn gradeCriterion(c: *Context) !void {
 
     try c.request.respond(std.mem.span(response.?), .{ .extra_headers = headers });
 }
+
+
+
+
+
+
+
 
 
 

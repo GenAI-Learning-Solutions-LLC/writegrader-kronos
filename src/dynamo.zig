@@ -7,10 +7,13 @@ pub const c = @cImport({
     @cInclude("stdlib.h");
 });
 
-
 const dynamo = @cImport({
     @cInclude("dynamo.h");
 });
+
+pub inline fn stringStem(s: []const u8) []const u8 {
+    return if (std.mem.indexOf(u8, s, "#")) |idx| s[idx + 1 ..] else s;
+}
 
 pub const ItemList = struct {
     items: [][]const u8,
@@ -208,9 +211,8 @@ pub fn saveItem(allocator: std.mem.Allocator, item_json: []const u8, owner: ?[]c
 pub fn saveObj(allocator: std.mem.Allocator, item: anytype, owner: ?[]const u8) !void {
     const item_json: []const u8 = try std.json.Stringify.valueAlloc(allocator, item, .{ .emit_null_optional_fields = false });
     defer allocator.free(item_json);
-    return saveItem(allocator,  item_json, owner); 
+    return saveItem(allocator, item_json, owner);
 }
-
 
 pub const SubscriptionInfo = struct {
     cancelAt: ?f64 = null,
