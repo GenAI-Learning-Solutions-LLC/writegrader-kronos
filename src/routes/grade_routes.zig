@@ -63,7 +63,7 @@ pub fn optimize(c: *Context) !void {
     const criteria = rubric.criteria;
     for (0..criteria.len) |i| {
         if (criteria[i].isManuallyGraded) continue;
-        const token = tasks.createTask(c.allocator, "optimize_criterion", user.email, .{ .body = parsed }) catch |err| {
+        const token = tasks.createTask(c.allocator, "optimize_criterion",  dynamo.stringStem(assignment.sk), user.email, .{ .body = parsed }) catch |err| {
             std.log.err("{}", .{err});
 
             try c.request.respond("not able to create token", .{ .status = .internal_server_error, .extra_headers = headers });
@@ -129,7 +129,7 @@ pub fn grade(c: *Context) !void {
         try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
         return;
     }
-    const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{ .body = body }) catch |err| {
+    const token = tasks.createTask(c.allocator, "grade_submission", dynamo.stringStem(partial.sk), user.email, .{ .body = body }) catch |err| {
         std.debug.print("error: user-{s} err-{}\n", .{ user.email, err });
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
         return;
@@ -201,7 +201,7 @@ pub fn gradeCriterion(c: *Context) !void {
 
     const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
     const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
-    const token = tasks.createTask(c.allocator, "grade_criterion", user.email, .{ .criterion = partial.criterion, .instructions = partial.instructions }) catch |err| {
+    const token = tasks.createTask(c.allocator, "grade_criterion", dynamo.stringStem(partial.criterion), user.email, .{ .criterion = partial.criterion, .instructions = partial.instructions }) catch |err| {
         std.debug.print("{any}\n", .{err});
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
         return;

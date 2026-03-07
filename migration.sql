@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS task_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task TEXT NOT NULL,
     step INTEGER DEFAULT 0,
+    reference TEXT,
     token TEXT NOT NULL, -- used for other services to be able to make updates to a specific task
     user_email TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready', 'stopped', 'running', 'complete', 'error')),
