@@ -6,10 +6,7 @@ const dynamo = @import("../dynamo.zig");
 const sub_routes = @import("submission_routes.zig");
 const tasks = @import("../tasks.zig");
 const sql = @import("../sql.zig");
-
-
-
-
+const types = @import("../schema.zig");
 
 const OptimizeBody = struct {
     sk: []const u8,
@@ -28,14 +25,34 @@ const OptimizeTask = struct {
 pub fn optimize(c: *Context) !void {
     const user = try dynamo.getUser(c);
     const headers = try server.makeHeaders(c.allocator, c.request);
-    const parsed = server.Parser.json(OptimizeBody, c.allocator, c.request) catch |err| {
-        std.log.err("{s} {s} {any}\n", .{user.email, c.request.head.target, err});
+    const content_length = c.request.head.content_length orelse {
+        try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
+
+        return;
+    };
+
+    if (content_length < 1) {
+        try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
+
+        return;
+    }
+    const parsed = server.Parser.json(OptimizeBody, c.allocator, c.request) catch {
         try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
         return;
     };
-    
-    const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{.body = parsed}) catch |err| {
-        std.log.err("user-{s} err-{any}\n", .{user.email, err});
+    const assignment = (try dynamo.getItemPkSk(types.assignment.Assignment, c.allocator, "ASSIGNMENT", parsed.pk, parsed.sk)) orelse {
+        server.debugPrint("----houston we have a null {s}\n", .{c.request.head.target});
+
+        try server.sendJson(c.allocator, c.request, null, .{ .status = .not_found, .extra_headers = headers });
+
+        return;
+    };
+    const rubric = assignment.rubric orelse {
+        try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
+        return;
+    };
+    _ = rubric;
+    const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{ .body = parsed }) catch {
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
         return;
     };
@@ -47,8 +64,7 @@ pub fn optimize(c: *Context) !void {
         .criterion = "Word Variability",
         .callback = task_endpoint,
         .callback_token = token,
-
-    }; 
+    };
     const payload = try std.json.Stringify.valueAlloc(c.allocator, task_obj, .{ .emit_null_optional_fields = false });
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
@@ -70,16 +86,6 @@ pub fn optimize(c: *Context) !void {
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 
-
-
-
-
-
-
-
-
-
-
 const GradeBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
     sk: []const u8,
@@ -97,7 +103,7 @@ pub fn grade(c: *Context) !void {
     const read_buf = try c.allocator.alloc(u8, 4096);
     const reader = try c.request.readerExpectContinue(read_buf);
     const body = try reader.readAlloc(c.allocator, content_length);
-   
+
     const partial = try std.json.parseFromSliceLeaky(GradeBodyPartial, c.allocator, body, .{
         .ignore_unknown_fields = true,
         .allocate = .alloc_always,
@@ -112,8 +118,8 @@ pub fn grade(c: *Context) !void {
         try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
         return;
     }
-     const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{.body = body}) catch |err| {
-        std.log.err("user-{s} err-{any}\n", .{user.email, err});
+    const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{ .body = body }) catch |err| {
+        std.debug.print("error: user-{s} err-{}\n", .{ user.email, err });
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
         return;
     };
@@ -150,14 +156,6 @@ pub fn grade(c: *Context) !void {
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 
-
-
-
-
-
-
-
-
 const GradeCritBodyPartial = struct {
     revisionModel: ?[]const u8 = null,
     instructions: ?[]const u8 = null,
@@ -186,13 +184,13 @@ pub fn gradeCriterion(c: *Context) !void {
         try std.fmt.allocPrint(c.allocator, "\"{s}\"", .{rm})
     else
         "null";
-    
+
     const use_claude = if (dynamo.c.getenv("FORCE_CLAUDE") != null) "true" else "false";
     const user_json = c.get("user") orelse "{}";
 
     const criterion_json = try std.json.Stringify.valueAlloc(c.allocator, partial.criterion, .{});
     const instructions_json = try std.json.Stringify.valueAlloc(c.allocator, partial.instructions, .{});
-    const token = tasks.createTask(c.allocator, "grade_criterion", user.email, .{.criterion = partial.criterion, .instructions = partial.instructions}) catch |err| {
+    const token = tasks.createTask(c.allocator, "grade_criterion", user.email, .{ .criterion = partial.criterion, .instructions = partial.instructions }) catch |err| {
         std.debug.print("{any}\n", .{err});
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
         return;
@@ -200,8 +198,7 @@ pub fn gradeCriterion(c: *Context) !void {
     const payload = try std.fmt.allocPrint(c.allocator,
         \\{{"action":"gradeCriterion","pr":true,"req":{{"criterion":{s},"instructions":{s},"pr":true,"body":{s},"user":{s},"query":{{}},"params":{{}},"useClaude":{s}}},"revisionModel":{s}}}
     , .{ criterion_json, instructions_json, body, user_json, use_claude, rev_model });
-    
-    
+
     const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
     defer std.heap.c_allocator.free(cpayload);
     const response: ?[*:0]u8 = if (dynamo.c.getenv("LOCAL_PARSER") != null) blk: {
@@ -214,25 +211,16 @@ pub fn gradeCriterion(c: *Context) !void {
 
     if (response == null) {
         try c.request.respond("", .{ .status = .internal_server_error });
-        try tasks.updateTask(c.allocator, token, "error", 0, false, .{.criterion = criterion_json, .instructions = instructions_json, .response = response});
+        try tasks.updateTask(c.allocator, token, "error", 0, false, .{ .criterion = criterion_json, .instructions = instructions_json, .response = response });
 
         return;
     }
-    try tasks.updateTask(c.allocator, token, "complete", 0, true, .{.criterion =  partial.criterion, .instructions = partial.instructions, .response = response});
+    try tasks.updateTask(c.allocator, token, "complete", 0, true, .{ .criterion = partial.criterion, .instructions = partial.instructions, .response = response });
 
     defer std.c.free(response);
 
     try c.request.respond(std.mem.span(response.?), .{ .extra_headers = headers });
 }
-
-
-
-
-
-
-
-
-
 
 pub fn gradeCriterionAsync(c: *Context) !void {
     const user = try dynamo.getUser(c);
@@ -285,9 +273,3 @@ pub fn gradeCriterionAsync(c: *Context) !void {
     sub_routes.invalidateSubmissionCache(user.email);
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
-
-
-
-
-
-

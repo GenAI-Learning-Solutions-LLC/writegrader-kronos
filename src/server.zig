@@ -362,13 +362,16 @@ pub const Parser = struct {
         defer allocator.free(buf);
         const reader = try request.readerExpectContinue(buf);
         const content_length = request.head.content_length orelse {
-            return error.no_body;
+            return ServerError.Client;
         };
+       if (content_length < 1) {
+                return ServerError.Client;
+        }
         // Read the body
         const body = try reader.readAlloc(allocator, content_length);
         defer allocator.free(body);
         if (body.len < 1) {
-                return error.no_body;
+                return ServerError.Client;
         }
         // Parse the JSON body - this creates a copy of the data
         const parsed = try std.json.parseFromSlice(T, allocator, body, .{
