@@ -72,6 +72,7 @@ fn initThreadLocal() !void {
     _ = c.sqlite3_exec(thread_db, "PRAGMA synchronous=NORMAL;", null, null, null);
     _ = c.sqlite3_exec(thread_db, "PRAGMA temp_store=MEMORY;", null, null, null);
     _ = c.sqlite3_exec(thread_db, "PRAGMA cache_size=-64000;", null, null, null);
+    _ = c.sqlite3_busy_timeout(thread_db, 5000);
 
     thread_initialized = true;
 }
