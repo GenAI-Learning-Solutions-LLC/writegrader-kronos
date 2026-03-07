@@ -287,7 +287,7 @@ pub const Server = struct {
         // Spawn workers
         for (0..worker_count) |i| {
             debugPrint("Spawning worker: {}\n", .{i + 1});
-            workers[i] = try std.Thread.spawn(.{.stack_size = 1024 * 512}, listen, .{ self, i, &worker_states[i], router });
+            workers[i] = try std.Thread.spawn(.{ .stack_size = 1024 * 512 }, listen, .{ self, i, &worker_states[i], router });
         }
 
         // Monitor and respawn threads if they finish
@@ -361,11 +361,15 @@ pub const Parser = struct {
         const buf = try allocator.alloc(u8, 4096);
         defer allocator.free(buf);
         const reader = try request.readerExpectContinue(buf);
-
+        const content_length = request.head.content_length orelse {
+            return error.no_body;
+        };
         // Read the body
-        const body = try reader.readAlloc(allocator, request.head.content_length.?);
+        const body = try reader.readAlloc(allocator, content_length);
         defer allocator.free(body);
-
+        if (body.len < 1) {
+                return error.no_body;
+        }
         // Parse the JSON body - this creates a copy of the data
         const parsed = try std.json.parseFromSlice(T, allocator, body, .{
             .ignore_unknown_fields = true,

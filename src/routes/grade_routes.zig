@@ -42,8 +42,8 @@ pub fn optimize(c: *Context) !void {
 
     const task_endpoint = std.mem.span(dynamo.c.getenv("OWN_URL"));
     const task_obj: OptimizeTask = .{
-        .pk = dynamo.stringStem(parsed.pk),
-        .sk = dynamo.stringStem(parsed.sk),
+        .pk = parsed.pk,
+        .sk = parsed.sk,
         .criterion = "Word Variability",
         .callback = task_endpoint,
         .callback_token = token,
