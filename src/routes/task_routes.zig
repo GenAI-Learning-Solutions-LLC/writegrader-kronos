@@ -6,7 +6,6 @@ const dynamo = @import("../dynamo.zig");
 const tasks = @import("../tasks.zig");
 const sql = @import("../sql.zig");
 
-
 const UpdateOptimizeBody = struct {
     taskToken: []const u8,
     status: []const u8,
@@ -49,7 +48,6 @@ pub fn updateOptimizeTask(c: *Context) !void {
     }
     try server.sendJson(c.allocator, c.request, .{ .message = "ok" }, .{ .extra_headers = h });
 }
-
 
 const UpdateBody = struct {
     taskToken: []const u8,
@@ -94,7 +92,6 @@ pub fn updateTask(c: *Context) !void {
     try server.sendJson(c.allocator, c.request, .{ .message = "ok" }, .{ .extra_headers = h });
 }
 
-
 pub fn getGradingStatus(c: *Context) !void {
     const user = try dynamo.getUser(c);
     const headers = try server.makeHeaders(c.allocator, c.request);
@@ -104,24 +101,26 @@ pub fn getGradingStatus(c: *Context) !void {
         "SELECT status, updated_at || 'Z', json_extract(json_extract(meta_data, '$.body'), '$.sk') as sk, json_extract(json_extract(meta_data, '$.body'), '$.pk') as pk, step, 5 steps FROM task_queue WHERE user_email = ? AND task = 'grade_submission' AND is_complete = 0 AND updated_at >= datetime('now', '-2 minutes', 'utc') ",
         .{user.email},
     ) catch null;
-    if (rows != null){
+    if (rows != null) {
         server.debugPrint("len: {d}", .{rows.?.len});
     }
-    try server.sendJson(c.allocator, c.request , rows, .{ .extra_headers = headers });
+    try server.sendJson(c.allocator, c.request, rows, .{ .extra_headers = headers });
 }
 
-
 pub fn getOptimizeStatus(c: *Context) !void {
-    const user = try dynamo.getUser(c);
     const headers = try server.makeHeaders(c.allocator, c.request);
-
+    const params = server.Parser.params(struct { sk: []const u8 }, c) catch |err| {
+        std.log.err("{}\n", .{err});
+        try c.request.respond("", .{ .extra_headers = headers, .status = .bad_request });
+        return;
+    };
     const rows = sql.getAll(
         c.allocator,
-        "SELECT status, updated_at || 'Z', json_extract(json_extract(meta_data, '$.body'), '$.sk') as sk, json_extract(json_extract(meta_data, '$.body'), '$.pk') as pk, step, 5 steps FROM task_queue WHERE user_email = ? AND task = 'optimize_criterion' AND is_complete = 0 AND updated_at >= datetime('now', '-2 minutes', 'utc') ",
-        .{user.email},
+        "SELECT status, updated_at || 'Z', json_extract(json_extract(meta_data, '$.body'), '$.sk') as sk, json_extract(json_extract(meta_data, '$.body'), '$.pk') as pk, step, 5 steps FROM task_queue WHERE task = 'optimize_criterion' AND is_complete = 0 AND updated_at >= datetime('now', '-5 minutes', 'utc') AND reference = ?",
+        .{ params.sk},
     ) catch null;
-    if (rows != null){
+    if (rows != null) {
         server.debugPrint("len: {d}", .{rows.?.len});
     }
-    try server.sendJson(c.allocator, c.request , rows, .{ .extra_headers = headers });
+    try server.sendJson(c.allocator, c.request, rows, .{ .extra_headers = headers });
 }
