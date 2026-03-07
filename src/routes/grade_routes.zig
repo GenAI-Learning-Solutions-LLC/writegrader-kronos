@@ -30,7 +30,6 @@ pub fn optimize(c: *Context) !void {
 
         return;
     };
-
     if (content_length < 1) {
         try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
 
@@ -40,49 +39,56 @@ pub fn optimize(c: *Context) !void {
         try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
         return;
     };
-    const assignment = (try dynamo.getItemPkSk(types.assignment.Assignment, c.allocator, "ASSIGNMENT", parsed.pk, parsed.sk)) orelse {
-        server.debugPrint("----houston we have a null {s}\n", .{c.request.head.target});
-
+    const assignment = (try dynamo.getItemPkSk(types.assignment.Assignment, c.allocator, "ASSIGNMENT", dynamo.stringStem(parsed.pk), dynamo.stringStem(parsed.sk))) orelse {
+        server.debugPrint("not found\n", .{});
         try server.sendJson(c.allocator, c.request, null, .{ .status = .not_found, .extra_headers = headers });
-
         return;
     };
-    const rubric = assignment.rubric orelse {
-        try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
-        return;
-    };
-    _ = rubric;
-    const token = tasks.createTask(c.allocator, "grade_submission", user.email, .{ .body = parsed }) catch {
+    const own_url = dynamo.c.getenv("OWN_URL");
+    const task_endpoint = std.fmt.allocPrint(c.allocator, "{s}/tasks/optimize", .{own_url}) catch |err| {
+        std.log.err("{}", .{err});
         try c.request.respond("", .{ .status = .internal_server_error, .extra_headers = headers });
         return;
     };
 
-    const task_endpoint = std.mem.span(dynamo.c.getenv("OWN_URL"));
-    const task_obj: OptimizeTask = .{
-        .pk = parsed.pk,
-        .sk = parsed.sk,
-        .criterion = "Word Variability",
-        .callback = task_endpoint,
-        .callback_token = token,
-    };
-    const payload = try std.json.Stringify.valueAlloc(c.allocator, task_obj, .{ .emit_null_optional_fields = false });
-    const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
-    defer std.heap.c_allocator.free(cpayload);
-
-    const rc = if (dynamo.c.getenv("LOCAL_PARSER") != null) blk: {
-        break :blk dynamo.c.http_post("http://localhost:3002", cpayload);
-    } else blk: {
-        const fn_env = dynamo.c.getenv("PARSER");
-        const cname: [*c]const u8 = if (fn_env != null) fn_env else "ai-parser-AiParserLambda8BD704BF-vi2FDv4rLltq";
-        break :blk dynamo.c.invoke_lambda(cname, cpayload);
-    };
-
-    if (rc != 0) {
-        try c.request.respond("", .{ .status = .internal_server_error });
+    const rubric = assignment.rubric orelse {
+        try c.request.respond("", .{ .status = .bad_request, .extra_headers = headers });
         return;
-    }
+    };
+    const criteria = rubric.criteria;
+    for (0..criteria.len) |i| {
+        if (criteria[i].isManuallyGraded) continue;
+        const token = tasks.createTask(c.allocator, "optimize_criterion", user.email, .{ .body = parsed }) catch |err| {
+            std.log.err("{}", .{err});
 
-    sub_routes.invalidateSubmissionCache(user.email);
+            try c.request.respond("not able to create token", .{ .status = .internal_server_error, .extra_headers = headers });
+
+            return;
+        };
+        const task_obj: OptimizeTask = .{
+            .pk = parsed.pk,
+            .sk = parsed.sk,
+            .criterion = criteria[i].name,
+            .callback = task_endpoint,
+            .callback_token = token,
+        };
+        const payload = try std.json.Stringify.valueAlloc(c.allocator, task_obj, .{ .emit_null_optional_fields = false });
+        const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
+        defer std.heap.c_allocator.free(cpayload);
+
+        const rc = if (dynamo.c.getenv("LOCAL_PARSER") != null) blk: {
+            break :blk dynamo.c.http_post("http://localhost:3002", cpayload);
+        } else blk: {
+            const fn_env = dynamo.c.getenv("PARSER");
+            const cname: [*c]const u8 = if (fn_env != null) fn_env else "ai-parser-AiParserLambda8BD704BF-vi2FDv4rLltq";
+            break :blk dynamo.c.invoke_lambda(cname, cpayload);
+        };
+
+        if (rc != 0) {
+            try c.request.respond("", .{ .status = .internal_server_error });
+            return;
+        }
+    }
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
 }
 
