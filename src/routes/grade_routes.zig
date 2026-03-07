@@ -8,6 +8,11 @@ const tasks = @import("../tasks.zig");
 const sql = @import("../sql.zig");
 const types = @import("../schema.zig");
 
+fn localPost(payload: [*:0]u8) void {
+    _ = dynamo.c.http_post("http://localhost:3002", payload);
+    std.heap.c_allocator.free(std.mem.span(payload));
+}
+
 const OptimizeBody = struct {
     sk: []const u8,
     pk: []const u8,
@@ -74,19 +79,19 @@ pub fn optimize(c: *Context) !void {
         };
         const payload = try std.json.Stringify.valueAlloc(c.allocator, task_obj, .{ .emit_null_optional_fields = false });
         const cpayload = try std.heap.c_allocator.dupeZ(u8, payload);
-        defer std.heap.c_allocator.free(cpayload);
 
-        const rc = if (dynamo.c.getenv("LOCAL_PARSER") != null) blk: {
-            break :blk dynamo.c.http_post("http://localhost:3002", cpayload);
-        } else blk: {
+        if (dynamo.c.getenv("LOCAL_PARSER") != null) {
+            const t = try std.Thread.spawn(.{}, localPost, .{cpayload});
+            t.detach();
+        } else {
+            defer std.heap.c_allocator.free(cpayload);
             const fn_env = dynamo.c.getenv("PARSER");
             const cname: [*c]const u8 = if (fn_env != null) fn_env else "ai-parser-AiParserLambda8BD704BF-vi2FDv4rLltq";
-            break :blk dynamo.c.invoke_lambda(cname, cpayload);
-        };
-
-        if (rc != 0) {
-            try c.request.respond("", .{ .status = .internal_server_error });
-            return;
+            const rc = dynamo.c.invoke_lambda(cname, cpayload);
+            if (rc != 0) {
+                try c.request.respond("", .{ .status = .internal_server_error });
+                return;
+            }
         }
     }
     try server.sendJson(c.allocator, c.request, .{ .message = "success" }, .{ .extra_headers = headers });
